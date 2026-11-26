@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Music test</title>
+<style>body{font:18px sans-serif;margin:20px}button{font-size:18px;margin:4px;padding:8px 12px}#now{font-size:22px;margin:12px 0}pre{background:#f4f4f4;padding:8px;max-height:300px;overflow:auto}</style></head>
+<body>
+<div id="stations"></div>
+<button id="next">⏭ Next</button><button id="stop">⏹ Stop</button><button id="toggle">⏯ Toggle</button>
+<label>Volume <input id="vol" type="range" min="0" max="1" step="0.05"></label>
+<div id="now">—</div><pre id="log"></pre>
+<script type="module">
+import { STATIONS, createMusic } from './js/music.js';
+const log = (...a) => { const l = document.getElementById('log'); l.textContent += a.join(' ') + '\n'; (window.__log ||= []).push(a.join(' ')); };
+window.__tracks = []; window.__states = [];
+const m = window.__music = createMusic({
+  onTrack: i => { window.__tracks.push(i); document.getElementById('now').textContent = `${i.title} — ${i.artist}${i.year ? ' (' + i.year + ')' : ''}`; log('track', JSON.stringify(i)); },
+  onState: s => { window.__states.push(s); log('state', s); },
+});
+for (const s of STATIONS) { const b = document.createElement('button'); b.id = 'st-' + s.id; b.textContent = `${s.emoji} ${s.name}`; b.title = s.blurb; b.onclick = () => m.play(s.id); document.getElementById('stations').append(b); }
+document.getElementById('next').onclick = () => m.next();
+document.getElementById('stop').onclick = () => m.stop();
+document.getElementById('toggle').onclick = () => m.toggle();
+const v = document.getElementById('vol'); v.value = m.volume; v.oninput = () => m.setVolume(v.value);
+log('loaded; enabled=', m.enabled, 'station=', m.station, 'volume=', m.volume);
+</script></body></html>

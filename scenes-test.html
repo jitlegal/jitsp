@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Scenes test</title>
+<style>body{margin:0;background:#222;color:#eee;font:14px sans-serif}#grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:6px}
+figure{margin:0}canvas{width:100%;display:block}figcaption{padding:2px 4px}</style></head>
+<body><div id="grid"></div>
+<script type="module">
+import { SCENES, paintScene, sceneName, pickScene } from './js/scenes.js';
+const seed = +(new URLSearchParams(location.search).get('seed') || 1);
+const results = [];
+for (const s of SCENES) {
+  const t0 = performance.now(); const c = paintScene(s.id, seed); const ms = performance.now() - t0;
+  const again = paintScene(s.id, seed).toDataURL('image/png') === c.toDataURL('image/png');
+  const other = paintScene(s.id, seed + 1).toDataURL('image/png') !== c.toDataURL('image/png');
+  results.push({ id: s.id, ms: Math.round(ms), deterministic: again, variesWithSeed: other });
+  const f = document.createElement('figure'); const cap = document.createElement('figcaption');
+  cap.textContent = `${s.emoji} ${sceneName(s.id)} — ${Math.round(ms)} ms`; f.append(c, cap); document.getElementById('grid').append(f);
+}
+window.__results = { results, pick: [1,2,3,4,5].map(pickScene) };
+</script></body></html>

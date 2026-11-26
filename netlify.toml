@@ -1,0 +1,16 @@
+# Static site: no build step, publish the folder as-is.
+[build]
+  publish = "."
+  command = ""
+
+# Always fetch the newest service worker and app files, so updates reach grandparents' tablets.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
