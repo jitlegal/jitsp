@@ -26,7 +26,7 @@ export const STATIONS = [
 
 function loadSettings() {
   try { const s = JSON.parse(localStorage.getItem(KEY)); if (s) return s; } catch (_) {}
-  return { on: false, station: 'parlor', volume: 0.5 };
+  return { on: false, station: 'parlor', volume: 0.5, restore: true };
 }
 function saveSettings(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (_) {} }
 
@@ -169,6 +169,51 @@ class MusicBox {
   }
 }
 
+// ------------------------------------------------------------------ 78 rpm restoration chain
+// input (stereo) → mono sum → rumble high-pass ×2 → [worklet: de-click + dynamic hiss filter]
+//   → warmth shelf → presence lift → 8 kHz roll-off → gentle compressor → make-up → wet ┐
+// input ─────────────────────────────────────────────────────────────────────── dry ┴→ output
+export function createRestoreChain(ctx, { workletUrl = new URL('./restore-worklet.js', import.meta.url), enabled = true, stages = {} } = {}) {
+  const gain = v => { const g = ctx.createGain(); g.gain.value = v; return g; };
+  const bq = (type, f, Q, dB) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; if (Q != null) b.Q.value = Q; if (dB != null) b.gain.value = dB; return b; };
+  const input = gain(1), output = gain(1), wet = gain(enabled ? 1 : 0), dry = gain(enabled ? 0 : 1);
+  const mono = gain(1); mono.channelCount = 1; mono.channelCountMode = 'explicit'; mono.channelInterpretation = 'speakers'; // (L+R)/2
+  const hp1 = bq('highpass', 70, 0.7071), hp2 = bq('highpass', 70, 0.7071);
+  const slotIn = gain(1), slotOut = gain(1);
+  const shelf = bq('lowshelf', 200, null, 2), presence = bq('peaking', 2500, 0.9, 1.5);
+  const lp = bq('lowpass', 6000, 0.7071);                 // 6 kHz until the worklet (with its own DNR) is running
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -20; comp.ratio.value = 2.5; comp.knee.value = 15; comp.attack.value = 0.01; comp.release.value = 0.3;
+  const makeup = gain(1.35);
+  input.connect(mono).connect(hp1).connect(hp2).connect(slotIn).connect(slotOut);
+  slotOut.connect(shelf).connect(presence).connect(lp).connect(comp).connect(makeup).connect(wet).connect(output);
+  input.connect(dry).connect(output);
+  let node = null;
+  const ready = (ctx.audioWorklet && typeof AudioWorkletNode !== 'undefined')
+    ? ctx.audioWorklet.addModule(workletUrl).then(() => {
+        node = new AudioWorkletNode(ctx, 'restore-78', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1], channelCount: 1, channelCountMode: 'explicit', processorOptions: stages });
+        slotIn.disconnect(slotOut); slotIn.connect(node).connect(slotOut);
+        lp.frequency.value = 8000;                         // dynamic filter handles hiss; keep only a gentle top roll-off
+        return node;
+      }).catch(() => null)
+    : Promise.resolve(null);
+  function setEnabled(on, secs = 0.3) {
+    const n = ctx.currentTime;
+    for (const [g, v] of [[wet, on ? 1 : 0], [dry, on ? 0 : 1]]) {
+      g.gain.cancelScheduledValues(n); g.gain.setValueAtTime(g.gain.value, n);
+      if (secs > 0) g.gain.linearRampToValueAtTime(v, n + secs); else g.gain.setValueAtTime(v, n);
+    }
+  }
+  return { input, output, ready, setEnabled, get worklet() { return node; } };
+}
+
+async function probeCors(url) {        // can WebAudio read this file? (headers only; the body is never downloaded)
+  const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 8000);
+  try { const r = await fetch(url, { mode: 'cors', cache: 'no-store', signal: ac.signal }); ac.abort(); return r.ok || r.status === 206; }
+  catch (_) { return false; }
+  finally { clearTimeout(timer); }
+}
+
 // ------------------------------------------------------------------ public player
 export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
   const settings = loadSettings();
@@ -176,6 +221,8 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
   let volume = Math.min(1, Math.max(0, Number(settings.volume ?? 0.5)));
   let playing = false, state = 'paused', fallback = false, failures = 0, gen = 0, retryAfter = 0;
   let ctx = null, boxGain = null;
+  if (settings.restore === undefined) settings.restore = true;
+  let mode = null, modeP = null, chain = null;   // mode: 'clean' (WebAudio restoration) | 'plain' (as-is)
   const archive = new Archive();
   const box = new MusicBox(() => ensureCtx());
   let cur = null, nxt = null;        // tracks: { el, src, info, prefetch, out }
@@ -191,9 +238,20 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
   const setState = s => { if (s !== state) { state = s; onState(s); } };
   const station = () => STATIONS.find(s => s.id === settings.station) || STATIONS[0];
 
+  function setLevel(el, v) {
+    if (el._gain) { const g = el._gain.gain, n = ctx.currentTime; g.cancelScheduledValues(n); g.setValueAtTime(v, n); }
+    else { try { el.volume = v; } catch (_) {} }
+  }
+  function stopFade(el) { clearInterval(el._fade); clearTimeout(el._fadeT); }
   function fade(audio, to, ms, then) {
+    stopFade(audio);
+    if (audio._gain) {                 // clean mode: sample-accurate ramps (and they work on iOS)
+      const g = audio._gain.gain, n = ctx.currentTime;
+      g.cancelScheduledValues(n); g.setValueAtTime(g.value, n); g.linearRampToValueAtTime(to, n + ms / 1000);
+      if (then) audio._fadeT = setTimeout(then, ms + 30);
+      return;
+    }
     const from = audio.volume, t0 = performance.now();
-    clearInterval(audio._fade);
     audio._fade = setInterval(() => {
       const k = Math.min(1, (performance.now() - t0) / ms);
       try { audio.volume = from + (to - from) * k; } catch (_) {}
@@ -223,18 +281,37 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
   }
   const idleEl = () => els.find(e => !cur || e !== cur.el) || els[0];
   function load(el, t) {               // put a track on an element, taking it over completely
-    el._unlocking = false; clearInterval(el._fade); el.pause();
-    el._owner = t; el.volume = 0; el.src = t.src; el.load();
+    el._unlocking = false; stopFade(el); el.pause();
+    if (mode === 'clean') el.crossOrigin = 'anonymous'; else el.removeAttribute('crossorigin');   // before src
+    el._owner = t; setLevel(el, 0); el.src = t.src; el.load();
   }
   function killAudio(t) {              // stop a track but keep the element for re-use
     if (!t || t.el._owner !== t) return;
-    clearInterval(t.el._fade); t.el.pause(); t.el.removeAttribute('src'); t.el.load(); t.el._owner = null;
+    stopFade(t.el); t.el.pause(); t.el.removeAttribute('src'); t.el.load(); t.el._owner = null;
   }
+
+  async function decideMode(url) {      // once per session; elements can only be wired to WebAudio once
+    const ok = !!ctx && await probeCors(url);
+    if (!ok) { mode = 'plain'; return; }
+    try {
+      chain = createRestoreChain(ctx, { enabled: settings.restore !== false });
+      chain.output.connect(ctx.destination);
+      for (const el of els) {
+        el.crossOrigin = 'anonymous';
+        const src = ctx.createMediaElementSource(el), g = ctx.createGain();
+        g.gain.value = 0; src.connect(g).connect(chain.input); el._gain = g;
+      }
+      try { el0Volume(); } catch (_) {}
+      mode = 'clean';
+    } catch (_) { mode = 'plain'; for (const el of els) el._gain = null; }
+  }
+  function el0Volume() { for (const el of els) el.volume = 1; }   // the GainNode does volume from now on
 
   async function prepare(myGen) {      // fetch a track and preload it on the idle element
     const st = station();
     const r = await archive.nextTrack(st);
     if (myGen !== gen) return null;
+    if (!mode) { modeP = modeP || decideMode(r.src); await modeP; if (myGen !== gen) return null; }
     const el = idleEl();
     if (nxt && nxt.el === el) nxt = null;            // replaced by this one
     const t = { el, src: r.src, info: r.info, prefetch: false, out: false };
@@ -251,7 +328,7 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
     const old = cur; cur = t;
     if (old && old !== t) fade(old.el, 0, FADE_MS, () => killAudio(old));
     const a = t.el;
-    a.onplaying = () => { if (cur === t) { failures = 0; setState('playing'); } };
+    a.onplaying = () => { if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); if (cur === t) { failures = 0; setState('playing'); } };
     a.onerror = () => { if (cur !== t || a._owner !== t) return; failures++; if (failures >= 3) goOffline(myGen); else startLive(myGen); };
     a.onloadedmetadata = () => { if (cur === t && Number.isFinite(a.duration) && (a.duration < MIN_SEC || a.duration > MAX_SEC + 30)) startLive(myGen); };
     a.onended = () => { if (cur === t) startLive(myGen); };
@@ -324,9 +401,15 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
     toggle() { return playing ? api.stop() : api.play(); },
     setVolume(v) {
       volume = Math.min(1, Math.max(0, Number(v) || 0)); settings.volume = volume; saveSettings(settings);
-      if (cur && !cur.out) { clearInterval(cur.el._fade); try { cur.el.volume = volume; } catch (_) {} }
+      if (cur && !cur.out) { stopFade(cur.el); setLevel(cur.el, volume); }
       if (ctx && (station().id === 'musicbox' || fallback) && playing) boxFade(volume * 0.9, 150);
     },
+    setRestore(on) {
+      settings.restore = !!on; saveSettings(settings);
+      if (chain) chain.setEnabled(!!on);
+    },
+    get restore() { return settings.restore !== false; },
+    get cleanMode() { return mode; },              // 'clean' | 'plain' | null (not decided yet)
     get volume() { return volume; },
     get playing() { return playing; },
     get station() { return settings.station; },

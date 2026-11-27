@@ -35,10 +35,10 @@ async function tx(store, mode, fn){
 // recipe: what the puzzle is (shareable); state: where pieces are; image: Blob of the picture.
 export const current = {
   async save({recipe, state, seconds, image}){
-    LS.set('jig.current', { recipe, state, seconds, at: Date.now() });
+    LS.set('jig.current', { recipe, state, seconds, sv: 2, at: Date.now() });
     if(image) await tx('images','readwrite', s => s.put(image, 'current')).catch(()=>{});
   },
-  saveState(state, seconds){ const c = LS.get('jig.current'); if(c){ c.state = state; c.seconds = seconds; c.at = Date.now(); LS.set('jig.current', c); } },
+  saveState(state, seconds){ const c = LS.get('jig.current'); if(c){ c.state = state; c.seconds = seconds; c.sv = 2; c.at = Date.now(); LS.set('jig.current', c); } },
   get(){ return LS.get('jig.current', null); },
   async image(){ try{ return await tx('images','readonly', s => s.get('current')); }catch(_){ return null; } },
   clear(){ LS.del('jig.current'); },

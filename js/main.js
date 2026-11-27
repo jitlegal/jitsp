@@ -12,6 +12,8 @@ const h = (tag, props = {}, ...kids) => { const e = document.createElement(tag);
   e.append(...kids.flat().filter(x => x!=null && x!==false)); return e; };
 const randSeed = () => (Math.random()*2**31)|0;
 const SIZES = [[6,'Easy'],[12,'Relaxed'],[24,'Challenge'],[48,'Expert']];
+/** Bigger puzzles need a sharper picture so pieces stay crisp when zoomed in. */
+const picSize = n => n > 300 ? 3200 : n > 100 ? 2600 : n > 48 ? 2000 : 1600;
 
 // ---------------- screens, dialogs, toasts ----------------
 function show(id){
@@ -63,8 +65,9 @@ function titleOf(r){
 }
 async function imageFor(r, embed){
   const s = r.src;
-  if(s.t === 'scene') return paintScene(String(s.id), s.s|0);
-  if(s.t === 'pic') return loadImg(`https://picsum.photos/id/${s.id|0}/1600/1200`, true);
+  const W = picSize(r.n), H = Math.round(W*0.75);
+  if(s.t === 'scene') return paintScene(String(s.id), s.s|0, W, H);
+  if(s.t === 'pic') return loadImg(`https://picsum.photos/id/${s.id|0}/${W}/${H}`, true);
   if(s.t === 'album' && safePath(s.u)) return loadImg(s.u);
   if(s.t === 'img' && typeof embed === 'string' && embed.startsWith('data:image/')) return loadImg(embed);
   throw new Error('picture');
@@ -78,6 +81,7 @@ const puzzle = new Puzzle($('#cv'), {
   onChange: () => game && current.saveState(puzzle.state(), game.seconds),
   onComplete: () => finished(),
   onTouch: () => hideTip(),
+  onZoomable: z => { for(const b of document.querySelectorAll('.bar .zoom')) b.classList.toggle('hidden', !z); },
 });
 puzzle.avoid = () => { const t = $('#thumb').getBoundingClientRect(), c = $('#cv').getBoundingClientRect();
   return t.width ? { x:t.left-c.left-10, y:t.top-c.top-10, w:t.width+20, h:t.height+20 } : null; };
@@ -85,10 +89,10 @@ puzzle.avoid = () => { const t = $('#thumb').getBoundingClientRect(), c = $('#cv
 async function startPuzzle(recipe, { source, embed, resume } = {}){
   toast('Getting your puzzle ready…', 20000);
   let img;
-  try{ img = toCanvas(source || await imageFor(recipe, embed)); }
+  try{ img = toCanvas(source || await imageFor(recipe, embed), picSize(recipe.n)); }
   catch(_){
     if(recipe.src.t === 'pic'){ toast("Couldn't fetch a photo just now — here's a painted picture instead.", 5000);
-      recipe = { ...recipe, src:{ t:'scene', id:pickScene(randSeed()), s:randSeed() } }; img = paintScene(recipe.src.id, recipe.src.s); }
+      recipe = { ...recipe, src:{ t:'scene', id:pickScene(randSeed()), s:randSeed() } }; img = paintScene(recipe.src.id, recipe.src.s, picSize(recipe.n), Math.round(picSize(recipe.n)*.75)); }
     else { toast("Sorry — that picture couldn't be opened.", 5000); return; }
   }
   const { rows, cols } = gridFor(recipe.n, img.width/img.height);
@@ -99,7 +103,7 @@ async function startPuzzle(recipe, { source, embed, resume } = {}){
   thumbURL = URL.createObjectURL(blob); $('#thumb').src = thumbURL;
   await $('#thumb').decode().catch(()=>{});          // the tray must know where the preview sits
   await new Promise(r => requestAnimationFrame(r));
-  puzzle.load(img, { rows, cols, shapeSeed: recipe.k, state: resume?.state });
+  puzzle.load(img, { rows, cols, shapeSeed: recipe.k, state: resume?.state, legacy: !!resume && resume.sv !== 2 });
   $('#peekBtn').setAttribute('aria-pressed', 'false');
   if(!resume) await current.save({ recipe, state: puzzle.state(), seconds: 0, image: blob });
   $('#toast').classList.add('hidden');
@@ -123,6 +127,9 @@ $('#peekBtn').onclick = () => { const on = !puzzle.peek; puzzle.setPeek(on); $('
 $('#thumb').onclick = () => $('#peekBtn').click();
 $('#tidyBtn').onclick = () => { puzzle.tidy(); current.saveState(puzzle.state(), game?.seconds||0); };
 $('#helpBtn').onclick = () => puzzle.help();
+$('#zoomIn').onclick = () => puzzle.zoomIn();
+$('#zoomOut').onclick = () => puzzle.zoomOut();
+$('#seeAll').onclick = () => puzzle.showAll();
 $('#shareNow').onclick = () => game && shareDialog(game, false);
 addEventListener('resize', () => { clearTimeout(window.__rz); window.__rz = setTimeout(() => { if(!$('#play').classList.contains('hidden')) puzzle.resize(); }, 150); });
 
@@ -133,7 +140,7 @@ async function finished(){
   const st = isDaily ? streak.complete() : null;
   current.clear();
   album.add({ id: Date.now(), date: today(), title: g.title, recipe: g.recipe, seconds: g.seconds,
-    thumb: await toBlob(g.img, .8, 480), full: await toBlob(g.img, .85, 1400), embed: g.embed || null });
+    thumb: await toBlob(g.img, .8, 480), full: await toBlob(g.img, .85, g.recipe.n > 100 ? 2600 : 1400), embed: g.embed || null });
   const mins = Math.max(1, Math.round(g.seconds/60));
   setTimeout(() => {
     dialog(
@@ -206,10 +213,30 @@ addEventListener('hashchange', () => checkBackupLink() || checkIncoming());
 // ---------------- choosing a puzzle ----------------
 function chooseSize(then){
   const cur = settings.get().pieces;
+  const pick = n => { settings.set({ pieces:n }); closeDialog(); then(n); };
+  // granular 100–1000 for a real challenge, with big ± buttons because sliders are fiddly for shaky hands
+  let big = cur >= 100 ? cur : 250;
+  const num = h('div', { class:'count' }), mood = h('div', { class:'muted' });
+  const range = h('input', { type:'range', min:100, max:1000, step:10, value:big, 'aria-label':'Number of pieces',
+    oninput: e => { big = +e.target.value; paint(); } });
+  const go = h('button', { class:'primary', style:'width:100%', onclick: () => pick(big) });
+  const nudge = d => () => { big = Math.min(1000, Math.max(100, big + d)); range.value = big; paint(); };
+  function paint(){
+    num.textContent = `${big} pieces`;
+    mood.textContent = big <= 200 ? 'A relaxing afternoon' : big <= 500 ? 'A cosy weekend project' : 'A real classic — take your time';
+    go.textContent = `Start with ${big} pieces`;
+  }
+  paint();
   dialog(h('h2', {}, 'How many pieces?'),
-    h('p', { class:'muted' }, innerWidth < 600 ? 'Fewer pieces means bigger pieces. On a phone, 6 or 12 is most comfortable — 48 is best on a tablet.' : 'Fewer pieces means bigger pieces.'),
+    h('p', { class:'muted' }, innerWidth < 600 ? 'Fewer pieces means bigger pieces. On a phone, 6 or 12 is most comfortable.' : 'Fewer pieces means bigger pieces.'),
     h('div', { class:'sizes' }, SIZES.map(([n, label]) =>
-      h('button', { class: n===cur ? 'on' : '', onclick: () => { settings.set({ pieces:n }); closeDialog(); then(n); } }, String(n), h('small', {}, label)))));
+      h('button', { class: n===cur ? 'on' : '', onclick: () => pick(n) }, String(n), h('small', {}, label)))),
+    h('div', { class:'big-size' },
+      h('h3', {}, 'A bigger challenge'),
+      num, mood,
+      h('div', { class:'row' }, h('button', { onclick: nudge(-50), 'aria-label':'50 fewer pieces' }, '−'), range, h('button', { onclick: nudge(50), 'aria-label':'50 more pieces' }, '+')),
+      h('p', { class:'muted' }, 'Big puzzles use a larger table: pinch or use ➕ ➖ to zoom, and drag the empty table to look around. Best on a tablet or computer.'),
+      go));
 }
 const today$ = () => { const seed = [...today()].reduce((a,c) => Math.imul(a ^ c.charCodeAt(0), 16777619), 2166136261) >>> 1;
   return { src:{ t:'scene', id: pickScene(seed), s: seed }, n: settings.get().pieces, k: seed ^ 0x2545F491, d: today() }; };
@@ -260,7 +287,7 @@ $('#albumBtn').onclick = async () => {
         h('span', {}, it.title), h('span', { class:'meta' }, `${new Date(it.id).toLocaleDateString()} · ${it.recipe.n} pieces`)); })));
 };
 async function albumItem(it){
-  const img = toCanvas(await fromBlob(it.full));
+  const img = toCanvas(await fromBlob(it.full), picSize(it.recipe.n));
   const g = { recipe: it.recipe, img, title: it.title, seconds: it.seconds, embed: it.embed };
   dialog(h('h2', {}, it.title), h('img', { class:'win-pic', src: img.toDataURL('image/jpeg', .7), alt: it.title }),
     h('div', { class:'stack' },
@@ -298,6 +325,10 @@ function musicDialog(){
         h('b', {}, nowPlaying.title), h('span', {}, [nowPlaying.artist, nowPlaying.year].filter(Boolean).join(' · ')),
         nowPlaying.url ? h('div', {}, h('a', { href: nowPlaying.url, target:'_blank', rel:'noopener' }, 'About this record')) : null)) : null,
     on ? h('button', { class:'secondary', style:'margin-top:10px;width:100%', onclick: () => music.next() }, '⏭️ Next song') : null,
+    typeof music.setRestore === 'function' ? h('div', { class:'switch' },
+      h('span', {}, 'Smooth out old-record crackle', h('small', { class:'muted', style:'display:block;font-weight:400' },
+        music.cleanMode === 'plain' ? 'Not available for these records — playing them as they are.' : 'Softens pops, hiss and rumble from the 100-year-old records.')),
+      h('button', { class: music.restore ? 'on' : '', onclick: () => { music.setRestore(!music.restore); musicDialog(); } }, music.restore ? 'On' : 'Off')) : null,
     h('label', { class:'field' }, 'Volume', vol),
     h('p', { class:'muted' }, 'Old records from 1900–1925 (public domain), streamed live from the Internet Archive’s Great 78 Project. With no internet, a gentle music box plays instead.'));
 }
@@ -352,11 +383,11 @@ async function restore(input){
   catch(_){ dialog(h('h2', {}, 'Hmm'), h('p', { class:'big' }, 'That doesn’t look like a puzzle backup, or it got cut off. Please try again.')); return; }
   toast('Restoring your puzzles…', 20000);
   const have = new Set((await album.all()).map(a => a.id)); let added = 0;
-  const imgOf = async (recipe, blob) => blob ? toCanvas(await fromBlob(blob)) : paintScene(recipe.src.id, recipe.src.s);
+  const imgOf = async (recipe, blob) => blob ? toCanvas(await fromBlob(blob), picSize(recipe.n)) : paintScene(recipe.src.id, recipe.src.s, picSize(recipe.n), Math.round(picSize(recipe.n)*.75));
   for(const it of data.album){
     if(have.has(it.id)) continue;
     try{ const img = await imgOf(it.recipe, it.image);
-      await album.add({ id: it.id, date: it.date, title: it.title, recipe: it.recipe, seconds: it.seconds, thumb: await toBlob(img, .8, 480), full: await toBlob(img, .85, 1400), embed: null });
+      await album.add({ id: it.id, date: it.date, title: it.title, recipe: it.recipe, seconds: it.seconds, thumb: await toBlob(img, .8, 480), full: await toBlob(img, .85, it.recipe.n > 100 ? 2600 : 1400), embed: null });
       added++; }catch(_){}
   }
   let curNote = '';

@@ -1,14 +1,14 @@
 // Backups: move your scrapbook and the puzzle in progress to another device, as small as possible.
 //
 //  * Painted pictures carry NO pixels: (scene id, seed) repaints them exactly.
-//  * Piece positions are bit-packed: 1 bit per piece for "placed", plus 12-bit x/y for loose pieces only.
+//  * Piece positions are bit-packed: 1 bit per piece for "placed", plus 16-bit x/y for loose pieces only.
 //  * The description ("manifest") is deflated with the browser's own CompressionStream.
 //  * Photos are stored once as raw WebP/JPEG bytes (never base64 inside the file).
 //
-// File layout (.jigsaw):  "JIG1" | u32 manifest length | deflated manifest | photo bytes...
-// Save code (no photos): "JIG1." + base64url(deflated manifest) — short enough for a QR code.
+// File layout (.jigsaw):  "JIG2" | u32 manifest length | deflated manifest | photo bytes...
+// Save code (no photos): "JIG2." + base64url(deflated manifest) — short enough for a QR code.
 
-const MAGIC = 'JIG1';
+const MAGIC = 'JIG2';
 const enc = new TextEncoder(), dec = new TextDecoder();
 const b64u = bytes => { let s = ''; for(let i=0;i<bytes.length;i+=0x8000) s += String.fromCharCode(...bytes.subarray(i,i+0x8000)); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); };
 const unb64u = s => Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0));
@@ -31,19 +31,19 @@ async function unpack(bytes){
 function concat(parts){ const n = parts.reduce((a,p)=>a+p.length,0), o = new Uint8Array(n); let i = 0; for(const p of parts){ o.set(p,i); i += p.length; } return o; }
 
 // ---------- bit-packed piece positions ----------
-const LO = -0.25, SPAN = 1.5, Q = 4095;                 // fractions of the play area, 12 bits each (< 1 px)
+const LO = -6, SPAN = 13, Q = 65535, BITS = 16;         // board-relative positions, 16 bits each (< 1% of a piece)
 export function packState(state, n){
   const bits = []; const put = (v, w) => { for(let i=w-1;i>=0;i--) bits.push((v>>i)&1); };
   for(let id=0; id<n; id++) put(state[id]?.[2] ? 1 : 0, 1);
   for(let id=0; id<n; id++){ const s = state[id]; if(!s || s[2]) continue;
-    put(Math.round(Math.min(1,Math.max(0,(s[0]-LO)/SPAN))*Q), 12); put(Math.round(Math.min(1,Math.max(0,(s[1]-LO)/SPAN))*Q), 12); }
+    put(Math.round(Math.min(1,Math.max(0,(s[0]-LO)/SPAN))*Q), BITS); put(Math.round(Math.min(1,Math.max(0,(s[1]-LO)/SPAN))*Q), BITS); }
   const bytes = new Uint8Array(Math.ceil(bits.length/8)); bits.forEach((b,i) => { if(b) bytes[i>>3] |= 0x80 >> (i&7); });
   return b64u(bytes);
 }
 export function unpackState(code, n){
   const bytes = unb64u(code); let p = 0; const get = w => { let v = 0; for(let i=0;i<w;i++,p++) v = (v<<1) | ((bytes[p>>3] >> (7-(p&7))) & 1); return v; };
   const placed = Array.from({length:n}, () => get(1)), state = {};
-  for(let id=0; id<n; id++) state[id] = placed[id] ? [0,0,1] : [ +(LO + get(12)/Q*SPAN).toFixed(4), +(LO + get(12)/Q*SPAN).toFixed(4), 0 ];
+  for(let id=0; id<n; id++) state[id] = placed[id] ? [0,0,1] : [ +(LO + get(BITS)/Q*SPAN).toFixed(4), +(LO + get(BITS)/Q*SPAN).toFixed(4), 0 ];
   return state;
 }
 
@@ -66,7 +66,7 @@ async function compact(blob){
  */
 export async function exportBackup({ album, current, currentImage, streak, settings }){
   const blobs = [], add = async b => { const u = await compact(b); blobs.push(u); return blobs.length-1; };
-  const m = { v:1, at: Date.now(), streak, settings, album: [] };
+  const m = { v:2, at: Date.now(), streak, settings, album: [] };
   for(const it of album){
     const e = { id: it.id, d: it.date, t: it.title, r: it.recipe, s: it.seconds };
     if(!regenerable(it.recipe)) e.i = await add(it.full);
@@ -74,7 +74,7 @@ export async function exportBackup({ album, current, currentImage, streak, setti
   }
   if(current){
     const n = Object.keys(current.state || {}).length;
-    m.cur = { r: current.recipe, s: current.seconds|0, n, p: packState(current.state || {}, n) };
+    m.cur = { r: current.recipe, s: current.seconds|0, n, p: packState(current.sv === 2 ? current.state || {} : {}, n) };
     if(!regenerable(current.recipe) && currentImage) m.cur.i = await add(currentImage);
   }
   m.sizes = blobs.map(b => b.length);
@@ -100,7 +100,7 @@ export async function importBackup(input){
     head = bytes.subarray(8, 8+len); blobArea = bytes.subarray(8+len);
   }
   const m = await unpack(head);
-  if(m.v !== 1) throw new Error('newer backup');
+  if(m.v !== 2) throw new Error('unsupported backup version');
   const blobs = []; let off = 0;
   for(const sz of m.sizes || []){ if(!blobArea || off+sz > blobArea.length) throw new Error('damaged'); blobs.push(new Blob([blobArea.subarray(off, off+sz)])); off += sz; }
   return {

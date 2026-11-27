@@ -20,13 +20,14 @@ like an app and works offline (except for music and surprise photos).
 
 | Feature | How it works |
 |---|---|
+| 6 to 1000 pieces | Quick choices (6 / 12 / 24 / 48) or a 100–1000 slider with big ± buttons. Puzzles of 49+ pieces get a larger table: pinch, the mouse wheel or ➕ ➖ to zoom, and drag the empty table to look around. Tap a piece, pan, then tap where it goes |
 | Today's puzzle + streak | The date picks a painted scene and piece shapes, so the whole family gets the same puzzle each day |
 | Painted pictures | `js/scenes.js` paints detailed scenes in code. They work offline, and a "seed" number makes each one reproducible |
 | My own photo | Read straight from the device. It is never uploaded anywhere |
 | Surprise photo | Lorem Picsum (Unsplash photographers); free, no key |
 | Family album | Optional: put pictures in `photos/` and list them in `photos.json` (see `photos.json.example`) |
 | My finished puzzles | A scrapbook stored on the device (IndexedDB) |
-| Music | `js/music.js` streams 1900–1925 recordings from the Internet Archive's Great 78 Project (no key needed). If that's unavailable, it plays a generated music box |
+| Music | `js/music.js` streams 1900–1925 recordings from the Internet Archive's Great 78 Project (no key needed). Old-record crackle, hiss and rumble are cleaned up live in the browser (`js/restore-worklet.js`). If the archive is unavailable, it plays a generated music box |
 | Back up & move | Settings → *Back up or move my puzzles*. Painted puzzles store only their seed, piece positions are packed into bits, and everything is deflated. A backup without personal photos is a short save code / QR, so a scrapbook of 30 puzzles fits in about 1 KB. With photos, it's one small `.jigsaw` file |
 | Send to family | The puzzle's "recipe" goes inside the link (`#p=…`). Short links also get a QR code |
 
@@ -55,11 +56,12 @@ Copyright rules differ in other countries.
 index.html            page layout
 css/app.css           look and feel
 js/main.js            screens, menus, sharing, music controls
-js/engine.js          the puzzle itself (shapes, drawing, touch)
+js/engine.js          the puzzle itself (shapes, zoomable table, drawing, touch)
 js/store.js           saving on the device
 js/share.js           links, QR codes, postcards
 js/backup.js          compact export/import (.jigsaw file or save code)
 js/scenes.js          painted pictures
 js/music.js           music player
+js/restore-worklet.js live 78 rpm noise clean-up (runs on the audio thread)
 sw.js, manifest.webmanifest, icons/   home-screen app + offline
 ```

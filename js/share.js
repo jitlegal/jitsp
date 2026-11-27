@@ -24,7 +24,7 @@ export function readLink(hash = location.hash){
     let img = null;
     if(q.get('i')){ const d = q.get('i').replace(/-/g,'+').replace(/_/g,'/');
       img = `data:image/${q.get('y')==='w'?'webp':'jpeg'};base64,` + d + '='.repeat((4-d.length%4)%4); }
-    recipe.n = Math.min(48, Math.max(4, recipe.n|0)); recipe.k = recipe.k|0;
+    recipe.n = Math.min(1000, Math.max(4, recipe.n|0)); recipe.k = recipe.k|0;
     return { recipe, img };
   }catch(_){ return null; }
 }

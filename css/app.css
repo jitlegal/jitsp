@@ -61,7 +61,14 @@ h2.section{color:var(--cream);font:600 24px var(--title);margin:26px 4px 12px}
 .sizes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}
 .sizes button{font-size:28px;font-weight:700;padding:14px 8px;background:#efe4cc;line-height:1.1}
 .sizes button small{display:block;font-size:17px;font-weight:400;color:var(--muted)}
-.sizes button.on{background:var(--ok);color:#fff}.sizes button.on small{color:#e3f2e3}
+.sizes button.on{background:var(--ok);color:#fff}
+.big-size{background:#fff;border-radius:16px;padding:14px 16px;margin-top:16px}
+.big-size h3{margin:0 0 4px;font:600 22px var(--title)}
+.big-size .count{font-size:34px;font-weight:700;line-height:1.1}
+.big-size .row{display:flex;gap:10px;align-items:center;margin:8px 0}
+.big-size .row button{min-width:64px;font-size:20px;font-weight:700;background:#efe4cc}
+.big-size .row input{flex:1}
+.bar .zoom{font-size:22px}.sizes button.on small{color:#e3f2e3}
 .pics{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:12px}
 .pics button{padding:0;background:#fff;border-radius:14px;overflow:hidden;display:flex;flex-direction:column;text-align:center;font-size:17px;font-weight:700;box-shadow:0 3px 10px rgba(0,0,0,.15)}
 .pics img,.pics canvas{width:100%;aspect-ratio:4/3;object-fit:cover;display:block}

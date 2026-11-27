@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>78 restoration test</title>
+<style>body{margin:0;background:#111;color:#ddd;font:14px sans-serif}canvas{display:block}</style></head>
+<body><canvas id="cv" width="1500" height="980"></canvas>
+<script type="module">
+import { createRestoreChain } from './js/music.js';
+const SR = 44100, SECS = 20, N = SR * SECS;
+
+// ---------- deterministic test material ----------
+function rng(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const R = rng(78);
+const music = new Float32Array(N);
+const scale = [220, 247, 277, 294, 330, 370, 415, 440, 494, 554, 587, 659, 740, 831, 880];
+for (let n = 0; n < SECS * 2; n++) {                  // two notes a second, loud and quiet sections every 5 s
+  const t0 = Math.floor(n * SR / 2), f = scale[Math.floor(R() * scale.length)], loud = Math.floor(n / 10) % 2 === 0 ? 0.5 : 0.08;
+  const saw = R() < 0.5, dur = Math.floor(SR * 0.6);
+  for (let i = 0; i < dur && t0 + i < N; i++) {
+    const t = i / SR, env = Math.min(1, t / 0.01) * Math.exp(-t * 2.5);
+    let v = 0; for (let h = 1; h * f < 4200; h++) v += (saw ? 1 / h : (h === 1 ? 1 : (h % 2 ? 0.25 / h : 0))) * Math.sin(2 * Math.PI * f * h * t);
+    v += 0.5 * Math.sin(2 * Math.PI * (f / 2) * t);  // bass voice
+    music[t0 + i] += loud * env * v * 0.55;
+  }
+}
+// 78 rpm noise: rumble (shared), hiss (half shared, half per groove wall), clicks (mostly shared), crackle (per wall)
+const noiseL = new Float32Array(N), noiseR = new Float32Array(N);
+let clicksInjected = 0;
+{
+  const pink = () => { let b0 = 0, b1 = 0, b2 = 0; return w => { b0 = 0.99765 * b0 + w * 0.0990460; b1 = 0.96300 * b1 + w * 0.2965164; b2 = 0.57000 * b2 + w * 1.0526913; return (b0 + b1 + b2 + w * 0.1848) * 0.11; }; };
+  const pS = pink(), pL = pink(), pR = pink();
+  for (let i = 0; i < N; i++) {
+    const shared = pS(R() * 2 - 1);
+    const hissAmp = 0.035;
+    noiseL[i] += hissAmp * (shared + pL(R() * 2 - 1)) + 0.03 * Math.sin(2 * Math.PI * 30 * i / SR);
+    noiseR[i] += hissAmp * (shared + pR(R() * 2 - 1)) + 0.03 * Math.sin(2 * Math.PI * 30 * i / SR);
+  }
+  const addClick = (arr, at, amp, width) => { for (let j = 0; j < width && at + j < N; j++) arr[at + j] += amp * Math.sin(Math.PI * (j + 0.5) / width) * Math.exp(-3 * j / width); };
+  for (let c = 0; c < SECS * 8; c++) {                // ~8 real clicks a second, 1–40 samples wide
+    const at = Math.floor(R() * N), amp = (0.1 + R() * 0.7) * (R() < 0.5 ? -1 : 1), width = 1 + Math.floor(R() * R() * 40);
+    const where = R(); if (where < 0.7) { addClick(noiseL, at, amp, width); addClick(noiseR, at, amp, width); } else addClick(where < 0.85 ? noiseL : noiseR, at, amp, width);
+    clicksInjected++;
+  }
+  for (let c = 0; c < SECS * 60; c++) { const at = Math.floor(R() * N), amp = (0.01 + R() * 0.04) * (R() < 0.5 ? -1 : 1);
+    addClick(R() < 0.5 ? noiseL : noiseR, at, amp, 1 + Math.floor(R() * 3)); }
+}
+const gaps = [[SR * 4, SR * 5], [SR * 14, SR * 15]];      // silent bars between songs: noise alone
+for (const [a, b] of gaps) music.fill(0, a, b);
+noiseL.fill(0, 0, SR / 2); noiseR.fill(0, 0, SR / 2); music.fill(0, 0, SR / 2);   // a track starts after digital silence
+const noisyL = music.map((v, i) => v + noiseL[i]), noisyR = music.map((v, i) => v + noiseR[i]);
+
+async function runChain(L, Rch, stages = {}) {
+  const ctx = new OfflineAudioContext(1, N, SR);
+  const chain = createRestoreChain(ctx, { enabled: true, stages });
+  await chain.ready;
+  const buf = ctx.createBuffer(2, N, SR); buf.copyToChannel(L, 0); buf.copyToChannel(Rch, 1);
+  const src = ctx.createBufferSource(); src.buffer = buf; src.connect(chain.input); chain.output.connect(ctx.destination); src.start();
+  const out = await ctx.startRendering();
+  let stats = null;
+  if (chain.worklet) stats = await new Promise(res => { chain.worklet.port.onmessage = e => res(e.data); chain.worklet.port.postMessage('stats'); setTimeout(() => res(null), 1000); });
+  return { y: out.getChannelData(0), worklet: !!chain.worklet, stats };
+}
+const t0 = performance.now();
+const after = await runChain(noisyL, noisyR);
+const cleanProc = await runChain(music, music);
+const renderMs = Math.round(performance.now() - t0);
+
+// ---------- analysis ----------
+function fft(re, im) { const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) { let b = n >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; } }
+  for (let len = 2; len <= n; len <<= 1) { const a = -2 * Math.PI / len, wr = Math.cos(a), wi = Math.sin(a);
+    for (let i = 0; i < n; i += len) { let cr = 1, ci = 0; for (let k = 0; k < len / 2; k++) { const ur = re[i + k], ui = im[i + k], vr = re[i + k + len / 2] * cr - im[i + k + len / 2] * ci, vi = re[i + k + len / 2] * ci + im[i + k + len / 2] * cr;
+      re[i + k] = ur + vr; im[i + k] = ui + vi; re[i + k + len / 2] = ur - vr; im[i + k + len / 2] = ui - vi; const nr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = nr; } } } }
+const F = 2048, hann = Float32Array.from({ length: F }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / F));
+function spectrum(x, from = 0, to = x.length) { const acc = new Float64Array(F / 2); let frames = 0;
+  for (let s = from; s + F <= to; s += F / 2) { const re = new Float64Array(F), im = new Float64Array(F); for (let i = 0; i < F; i++) re[i] = x[s + i] * hann[i]; fft(re, im);
+    for (let k = 0; k < F / 2; k++) acc[k] += re[k] * re[k] + im[k] * im[k]; frames++; }
+  return acc.map(v => v / frames); }
+const band = (sp, lo, hi) => { let s = 0; for (let k = Math.ceil(lo * F / SR); k <= Math.floor(hi * F / SR); k++) s += sp[k]; return 10 * Math.log10(s + 1e-20); };
+function d2peaks(x, thr) { let n = 0, last = -1e9; for (let i = 2; i < x.length; i++) { if (Math.abs(x[i] - 2 * x[i - 1] + x[i - 2]) > thr) { if (i - last > SR * 0.002) n++; last = i; } } return n; }
+const maxd2 = x => { let m = 0; for (let i = 2; i < x.length; i++) m = Math.max(m, Math.abs(x[i] - 2 * x[i - 1] + x[i - 2])); return m; };
+const snr = (ref, x) => { let s = 0, e = 0; for (let i = 0; i < ref.length; i++) { s += ref[i] * ref[i]; e += (x[i] - ref[i]) ** 2; } return 10 * Math.log10(s / e); };
+function corr(a, b, lag = 0) { let sab = 0, saa = 0, sbb = 0; for (let i = 0; i + lag < a.length; i++) { const x = a[i + lag], y = b[i]; sab += x * y; saa += x * x; sbb += y * y; } return sab / Math.sqrt(saa * sbb); }
+let bestLag = 0, best = -2; for (let l = 0; l < 2200; l += 1) { const c = corr(after.y.subarray(0, SR * 4), music.subarray(0, SR * 4), l); if (c > best) { best = c; bestLag = l; } }
+
+const thrBefore = 1.2 * maxd2(music), thrAfter = 1.2 * maxd2(cleanProc.y);
+const quiet = [SR * 5, SR * 10];                       // a quiet section (notes at 0.08)
+const sp = { clean: spectrum(music), before: spectrum(noisyL), cleanProc: spectrum(cleanProc.y), after: spectrum(after.y) };
+const spQ = { clean: spectrum(music, ...quiet), before: spectrum(noisyL, ...quiet), cleanProc: spectrum(cleanProc.y, ...quiet), after: spectrum(after.y, ...quiet) };
+const rms = (x, a, b) => { let s = 0; for (let i = a; i < b; i++) s += x[i] * x[i]; return Math.sqrt(s / (b - a)); };
+const gapRms = x => Math.sqrt(gaps.reduce((s, [a, b]) => s + rms(x, a + 2000, b) ** 2, 0) / gaps.length);
+const loudRef = (x) => rms(x, SR * 0.5, SR * 4);          // first loud section
+const gapBand = (x, lo, hi) => band(spectrum(x, gaps[0][0] + 2048, gaps[0][1]), lo, hi) / 2 + band(spectrum(x, gaps[1][0] + 2048, gaps[1][1]), lo, hi) / 2;
+const loudBand = (x, lo, hi) => band(spectrum(x, SR / 2, SR * 4), lo, hi);
+const db = v => +(20 * Math.log10(v)).toFixed(1);
+const ablation = {};
+for (const [name, st] of [['biquads_only', { declick: false, nr: false, dnr: false }], ['+declick', { nr: false, dnr: false }], ['+declick+nr', { dnr: false }], ['full', {}]]) {
+  const a = await runChain(noisyL, noisyR, st), c = await runChain(music, music, st);
+  ablation[name] = { floor_dB: db(gapRms(a.y) / loudRef(c.y)), hiss_2to6k: +(gapBand(a.y, 2000, 6000) - loudBand(c.y, 100, 4000)).toFixed(1),
+    hiss_6to12k: +(gapBand(a.y, 6000, 12000) - loudBand(c.y, 100, 4000)).toFixed(1), clicks: d2peaks(a.y, 1.2 * maxd2(c.y)),
+    repairs_noisy: a.stats && a.stats.clicks, repairs_on_clean_music: c.stats && c.stats.clicks, tilt_1to4k_vs_100to1k: +(band(spectrum(c.y), 1000, 4000) - band(spectrum(c.y), 100, 1000)).toFixed(1) };
+}
+const startBand = (x, lo, hi) => band(spectrum(x, SR * 0.6, SR * 3), lo, hi);
+const report = {
+  hiss_6to12k_first_3s_of_track_dB: { before: +startBand(noisyL, 6000, 12000).toFixed(1), after: +startBand(after.y, 6000, 12000).toFixed(1) },
+  ablation,
+  noise_floor_in_silent_gaps_vs_loud_music_dB: { before: db(gapRms(noisyL) / loudRef(music)), after: db(gapRms(after.y) / loudRef(cleanProc.y)) },
+  hiss_6to12k_in_gaps_vs_loud_music_band_dB: {
+    before: +(gapBand(noisyL, 6000, 12000) - loudBand(music, 100, 4000)).toFixed(1),
+    after: +(gapBand(after.y, 6000, 12000) - loudBand(cleanProc.y, 100, 4000)).toFixed(1) },
+  crackle_hiss_2to6k_in_gaps_vs_music_dB: {
+    before: +(gapBand(noisyL, 2000, 6000) - loudBand(music, 100, 4000)).toFixed(1),
+    after: +(gapBand(after.y, 2000, 6000) - loudBand(cleanProc.y, 100, 4000)).toFixed(1) },
+  worklet: after.worklet, renderMs, clicksInjected, latencySamples: bestLag,
+  clicks: { before: d2peaks(noisyL, thrBefore), after: d2peaks(after.y, thrAfter) },
+  hiss_6to12k_dB: Object.fromEntries(Object.entries(sp).map(([k, v]) => [k, +band(v, 6000, 12000).toFixed(1)])),
+  hiss_6to12k_quietSection_dB: Object.fromEntries(Object.entries(spQ).map(([k, v]) => [k, +band(v, 6000, 12000).toFixed(1)])),
+  music_1to4k_dB: Object.fromEntries(Object.entries(sp).map(([k, v]) => [k, +band(v, 1000, 4000).toFixed(1)])),
+  music_1to4k_minus_100to1k: Object.fromEntries(Object.entries(sp).map(([k, v]) => [k, +(band(v, 1000, 4000) - band(v, 100, 1000)).toFixed(1)])),
+  rumble_20to50Hz_dB: { before: +band(sp.before, 20, 50).toFixed(1), after: +band(sp.after, 20, 50).toFixed(1) },
+  snr_dB: { before: +snr(music, noisyL).toFixed(1), after_vs_cleanThroughChain: +snr(cleanProc.y, after.y).toFixed(1) },
+  correlation: { before: +corr(noisyL, music).toFixed(4), after_vs_clean: +best.toFixed(4), after_vs_cleanThroughChain: +corr(after.y, cleanProc.y).toFixed(4) },
+};
+
+// ---------- pictures: spectrogram + waveform for clean / before / after ----------
+const cv = document.getElementById('cv'), g = cv.getContext('2d');
+const rows = [['Clean reference', music], ['Before (left channel, as heard)', noisyL], ['After restoration', after.y]];
+const RH = 320, W = 1500, FR = 1024;
+rows.forEach(([label, x], r) => {
+  const y0 = r * RH, cols = W, img = g.createImageData(W, 240);
+  for (let c = 0; c < cols; c++) {
+    const s = Math.floor(c / cols * (x.length - FR)), re = new Float64Array(FR), im = new Float64Array(FR);
+    for (let i = 0; i < FR; i++) re[i] = x[s + i] * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / FR)); fft(re, im);
+    for (let py = 0; py < 240; py++) { const k = Math.floor((1 - py / 240) * (12000 / SR * FR)) + 1, db = 10 * Math.log10(re[k] * re[k] + im[k] * im[k] + 1e-12);
+      const v = Math.max(0, Math.min(1, (db + 60) / 80)), o = (py * W + c) * 4;
+      img.data[o] = 255 * Math.min(1, v * 1.6); img.data[o + 1] = 255 * Math.max(0, v * 1.6 - 0.5); img.data[o + 2] = 255 * Math.max(0, 1 - v * 2) * v * 2; img.data[o + 3] = 255; }
+  }
+  g.putImageData(img, 0, y0 + 20);
+  g.fillStyle = '#000'; g.fillRect(0, y0 + 260, W, 60); g.strokeStyle = '#6cf'; g.beginPath();
+  for (let c = 0; c < W; c++) { let mx = 0; const a = Math.floor(c / W * x.length), b = Math.floor((c + 1) / W * x.length); for (let i = a; i < b; i++) mx = Math.max(mx, Math.abs(x[i])); g.moveTo(c, y0 + 290 - mx * 28); g.lineTo(c, y0 + 290 + mx * 28); }
+  g.stroke(); g.fillStyle = '#fff'; g.font = '16px sans-serif'; g.fillText(label + '   (spectrogram 0–12 kHz, 20 s; waveform below)', 8, y0 + 15);
+});
+
+function wav(x, ch2) { const n = x.length, chs = ch2 ? 2 : 1, b = new ArrayBuffer(44 + n * 2 * chs), v = new DataView(b);
+  const ws = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  ws(0, 'RIFF'); v.setUint32(4, 36 + n * 2 * chs, true); ws(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, chs, true);
+  v.setUint32(24, SR, true); v.setUint32(28, SR * 2 * chs, true); v.setUint16(32, 2 * chs, true); v.setUint16(34, 16, true); ws(36, 'data'); v.setUint32(40, n * 2 * chs, true);
+  let o = 44; for (let i = 0; i < n; i++) for (let c = 0; c < chs; c++) { const s = Math.max(-1, Math.min(1, (c ? ch2 : x)[i])); v.setInt16(o, s * 32767, true); o += 2; }
+  let bin = ''; const u = new Uint8Array(b); for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(bin); }
+window.__wavs = { clean: wav(music), before: wav(noisyL, noisyR), after: wav(after.y) };
+window.__report = report;
+</script></body></html>
