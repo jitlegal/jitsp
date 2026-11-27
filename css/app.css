@@ -189,3 +189,13 @@ h2.section{margin:24px 2px 12px;font-size:clamp(21px,5.6vw,26px)}
 @media (min-width:560px){ .deal{grid-template-columns:auto minmax(0,1fr) auto} .deal .primary{grid-column:auto;width:auto;white-space:nowrap} }
 /* keep the whole toolbar on screen when big-puzzle buttons appear (spoken names stay) */
 @media (max-width:1180px){ #peekBtn .lbl,#tidyBtn .lbl,#edgesBtn .lbl,#seeAll .lbl,#undoBtn .lbl{display:none} }
+
+/* today's games: one row per daily game */
+.daily{padding:16px}
+.daily h2{font:600 clamp(22px,5.6vw,28px)/1.15 var(--title);margin:0}
+.daily>p{margin:4px 0 10px}
+.daily-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px;align-items:center;padding:12px 0;border-top:2px solid var(--line)}
+.daily-row .emoji{font-size:38px;line-height:1}
+.daily-row b{display:block;font-size:20px}
+.daily-row .primary{grid-column:1/-1;width:100%}
+@media (min-width:560px){ .daily-row{grid-template-columns:auto minmax(0,1fr) auto} .daily-row .primary{grid-column:auto;width:auto;white-space:nowrap} }

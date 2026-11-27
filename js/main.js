@@ -1,7 +1,7 @@
 // The app shell: home screen, dialogs, settings, music, sharing, saving, scrapbook and backups —
 // everything shared by all games. Each game is a plug-in in js/games/ (see GAMES.md).
 import { gridFor } from './engine.js';
-import { settings, current, album, streak, dealStreak, today, dayBefore, LS } from './store.js';
+import { settings, current, album, streak, gameStreak, today, dayBefore, LS } from './store.js';
 import { publicBase, makeLink, readLink, photoForLink, qrCanvas, shareLink, shareImage, copy, smsHref, mailHref, postcard, QR_MAX } from './share.js';
 import { SCENES, paintScene, sceneName, pickScene } from './scenes.js';
 import { createMusic, STATIONS } from './music.js';
@@ -204,7 +204,7 @@ addEventListener('resize', () => { clearTimeout(window.__rz); window.__rz = setT
 async function finished(){
   const g = active; if(!g || g.finished) return; g.finished = true;
   const name = settings.get().name, isDaily = g.game.id === 'jigsaw' && (g.recipe.d === today() || g.recipe.d === dayBefore(today()));
-  const st = isDaily ? streak.complete(g.recipe.d) : g.daily && (g.daily === today() || g.daily === dayBefore(today())) ? dealStreak.complete(g.daily) : null;
+  const st = isDaily ? streak.complete(g.recipe.d) : g.daily && (g.daily === today() || g.daily === dayBefore(today())) ? gameStreak(g.game.id).complete(g.daily) : null;
   current.clear();
   const pic = g.img || g.inst.snapshot?.() || null;
   if(pic) g.pic = pic;
@@ -328,10 +328,14 @@ function guardNew(go){
       h('button', { class:'secondary', onclick: () => { closeDialog(); go(); } }, 'Start the new one')));
 }
 $('#todayBtn').onclick = () => guardNew(() => startGame(today$()));
-$('#dealBtn').onclick = () => { const sol = getGame('solitaire'); if(!sol) return;
-  const seed = ([...today()].reduce((a,c) => Math.imul(a ^ c.charCodeAt(0), 16777619), 2166136261) ^ 0x51ED27) >>> 1;
-  const opts = { ...Object.fromEntries((sol.options||[]).map(o => [o.key, o.default])), ...(settings.get().opts_solitaire || {}), draw: 1 };
-  guardNew(() => startGame(sol.newRecipe(seed, opts), { daily: today() })); };
+// Daily games: the date (and the game) pick the seed, so everyone gets the same game today.
+const DAILY = ['solitaire', 'sudoku'];
+const DAILY_OPTS = { solitaire: { draw: 1 }, sudoku: { level: 'easy' } };
+function startDaily(g){
+  const seed = ([...(today() + g.id)].reduce((a,c) => Math.imul(a ^ c.charCodeAt(0), 16777619), 2166136261)) >>> 1;
+  const opts = { ...Object.fromEntries((g.options||[]).map(o => [o.key, o.default])), ...(settings.get()['opts_' + g.id] || {}), ...(DAILY_OPTS[g.id] || {}) };
+  guardNew(() => startGame(g.newRecipe(seed, opts), { daily: today() }));
+}
 $('#photoBtn').onclick = () => $('#file').click();
 $('#file').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if(!f) return;
@@ -580,10 +584,12 @@ async function refreshHome(){
   $('#streakText').textContent = done ? `✓ Done today${st.count > 1 ? ` — 🔥 ${st.count} days in a row` : ''}. A new one arrives tomorrow.`
     : st.count > 0 ? `🔥 ${st.count} day${st.count>1?'s':''} in a row — keep it going!` : 'A new painted picture every day.';
   $('#todayBtn').textContent = done ? 'Play it again' : 'Start today’s puzzle';
-  const sol = getGame('solitaire'); $('#dealCard').classList.toggle('hidden', !sol);
-  if(sol){ const ds = dealStreak.get(), dd = dealStreak.doneToday();
-    $('#dealText').textContent = dd ? `✓ Done today${ds.count > 1 ? ` — 🔥 ${ds.count} days in a row` : ''}. A new deal tomorrow.` : ds.count > 0 ? `🔥 ${ds.count} day${ds.count>1?'s':''} in a row — keep it going!` : 'The same winnable deal for everyone today.';
-    $('#dealBtn').textContent = dd ? 'Play it again' : 'Deal me in'; }
+  const dailies = DAILY.map(getGame).filter(Boolean);
+  $('#dealCard').classList.toggle('hidden', !dailies.length);
+  $('#dailyRows').replaceChildren(...dailies.map(g => { const st = gameStreak(g.id), s = st.get(), done = st.doneToday();
+    return h('div', { class:'daily-row' }, h('span', { class:'emoji', 'aria-hidden':'true' }, g.emoji),
+      h('div', {}, h('b', {}, `Today's ${g.name}`), h('span', { class:'muted' }, done ? `✓ Done today${s.count > 1 ? ` — 🔥 ${s.count} days in a row` : ''}` : s.count > 0 ? `🔥 ${s.count} day${s.count>1?'s':''} in a row` : 'Ready when you are')),
+      h('button', { class:'primary', 'aria-label': `${done ? 'Play again' : 'Play'}: today's ${g.name}`, onclick: () => startDaily(g) }, done ? 'Play again' : 'Play')); }));
   const c = current.get(), game = c && gameOf(c.recipe);
   $('#continueCard').classList.toggle('hidden', !game);
   if(game){

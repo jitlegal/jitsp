@@ -70,6 +70,9 @@ function makeStreak(key){ return {
 }; }
 export const streak = makeStreak('jig.streak');
 export const dealStreak = makeStreak('jig.streak.deal');
+const streaks = { solitaire: dealStreak };
+/** One streak per daily game (Solitaire keeps its original key). */
+export const gameStreak = id => streaks[id] ||= makeStreak('jig.streak.' + id);
 function dayBefore(day){ const [y,m,d] = day.split('-').map(Number), t = new Date(y, m-1, d-1);
   return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`; }
 export { dayBefore };
