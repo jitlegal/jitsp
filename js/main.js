@@ -377,7 +377,7 @@ function gameOptions(game){
     } }, `Start ${game.name}`));
 }
 function renderGameTiles(){
-  $('#gameTiles').replaceChildren(...GAMES.filter(g => g.id !== 'jigsaw').map(g =>
+  $('#gameTiles').prepend(...GAMES.filter(g => g.id !== 'jigsaw').map(g =>
     h('button', { class:'tile', onclick: () => gameOptions(g) }, h('span', { 'aria-hidden':'true' }, g.emoji), g.name)));
 }
 

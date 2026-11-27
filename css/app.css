@@ -143,3 +143,39 @@ h2.section::after{content:"";flex:1;height:2px;background:rgba(251,244,230,.22);
 .tile:hover{transform:translateY(-2px);box-shadow:0 10px 22px rgba(0,0,0,.28)}
 .tile:focus-visible{border-color:var(--gold)}
 :root[data-motion=reduce] .tile:hover{transform:none}
+
+/* ================= home: mobile-first layout ================= */
+#home{max-width:1080px;padding-left:max(14px,env(safe-area-inset-left));padding-right:max(14px,env(safe-area-inset-right))}
+.top{flex-wrap:wrap;row-gap:8px}
+.top h1{font-size:clamp(26px,7.2vw,42px);min-width:0;flex:1 1 9em;overflow-wrap:break-word;text-wrap:balance}
+.round{width:52px;height:52px;font-size:24px;background:var(--cream);color:var(--ink);box-shadow:0 3px 10px rgba(0,0,0,.25)}
+.round.on{background:var(--gold)}
+/* keep going: picture + title on one row, full-width button underneath */
+.continue{display:grid;grid-template-columns:96px minmax(0,1fr);gap:12px 14px;align-items:center;padding:14px}
+.continue>div:last-child{display:contents}
+.continue-pic{width:96px;height:72px}
+.continue .big{margin:0;font-size:20px;line-height:1.25}
+.continue .primary{grid-column:1/-1;width:100%}
+/* today: wide crop on phones so the button and first games fit on screen */
+.today{grid-template-columns:1fr;gap:14px;padding:16px}
+.today-pic{position:relative;aspect-ratio:16/9;overflow:hidden;border-radius:14px;border:6px solid #fff;box-shadow:0 4px 12px rgba(0,0,0,.18)}
+.today-pic canvas{position:absolute;left:0;top:50%;width:100%;height:auto;transform:translateY(-50%);border:0;border-radius:0;box-shadow:none}
+.today h2{font-size:clamp(26px,7vw,40px)}
+.today .primary{width:100%}
+/* tiles: 2 → 3 → 4 columns */
+.tiles{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.tile{min-height:100px;font-size:clamp(17px,4.6vw,21px);padding:12px 8px;line-height:1.2;text-align:center}
+.tile span{font-size:34px}
+h2.section{margin:24px 2px 12px;font-size:clamp(21px,5.6vw,26px)}
+@media (min-width:560px){
+  .tiles{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .continue{grid-template-columns:120px minmax(0,1fr) auto}
+  .continue .primary{grid-column:auto;width:auto;white-space:nowrap}
+  .continue-pic{width:120px;height:90px}
+}
+@media (min-width:760px){
+  .today{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:24px;padding:22px}
+  .today-pic{aspect-ratio:4/3}
+}
+@media (min-width:1000px){ .tiles{grid-template-columns:repeat(4,minmax(0,1fr))} }
+:root[data-contrast=high] .round{border:3px solid #000}
