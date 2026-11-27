@@ -243,3 +243,17 @@ body.playing .toast{top:calc(var(--bar-h,68px) + 8px);bottom:auto}
 .opt-group button[aria-pressed=true]{background:var(--ok);color:#fff;border-color:var(--ok);font-weight:700}
 .opt-group button[aria-pressed=true]::before{content:"✓ ";font-weight:700}
 :root[data-contrast=high] .opt-group button[aria-pressed=true]{background:#000;color:#fff;border-color:#000}
+
+/* option choices are native radios styled as big buttons */
+fieldset.opt-group{border:0;margin:14px 0 0;padding:0;min-width:0}
+fieldset.opt-group legend{font:600 21px var(--title);margin:0 0 6px;padding:0}
+.choice{position:relative;display:block;cursor:pointer}
+.choice input{position:absolute;opacity:0;width:1px;height:1px;margin:0;pointer-events:none}
+.choice span{display:flex;align-items:center;justify-content:center;text-align:center;min-height:56px;padding:10px 14px;border-radius:14px;border:2px solid var(--line);background:var(--paper);font-size:19px;line-height:1.25;-webkit-user-select:none;user-select:none}
+.stack .choice span{justify-content:flex-start;text-align:left}
+.choice input:checked+span{background:var(--ok);color:#fff;border-color:var(--ok);font-weight:700}
+.choice input:checked+span::before{content:"✓\00a0";font-weight:700}
+.choice input:focus-visible+span{outline:4px solid var(--gold);outline-offset:2px}
+.choice:active span{transform:scale(.98)}
+:root[data-contrast=high] .choice span{border:3px solid #000}
+:root[data-contrast=high] .choice input:checked+span{background:#000;color:#fff}

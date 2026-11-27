@@ -23,6 +23,7 @@ const h = (tag, props = {}, ...kids) => { const e = document.createElement(tag);
     else e.setAttribute(k, v);
   }
   e.append(...kids.flat().filter(x => x != null && x !== false)); return e; };
+const APP_VERSION = '2026.11.27-r3';                // shown in Settings so you can tell an update has arrived
 const randSeed = () => (Math.random()*2**31)|0;
 const SIZES = [[6,'Easy'],[12,'Relaxed'],[24,'Challenge'],[48,'Expert']];
 const jigsaw = getGame('jigsaw');
@@ -391,16 +392,23 @@ $('#familyBtn').onclick = () => dialog(h('h2', {}, 'Family album'), h('div', { c
     h('img', { src: p.src, alt: '', loading:'lazy' }), h('span', {}, cleanText(String(p.title || 'Family photo'), 60))))));
 
 // ---------------- other games: tiles + options from the registry ----------------
+// Options use native radio buttons (styled as big buttons): selection is handled by the browser itself,
+// so it works on every device, by touch, mouse, keyboard (arrow keys) and screen reader.
 function gameOptions(game){
-  const chosen = { ...(settings.get()['opts_' + game.id] || {}) };
+  const saved = settings.get()['opts_' + game.id] || {};
   const groups = (game.options || []).map(o => {
-    if(!(o.key in chosen)) chosen[o.key] = o.default;
-    const btns = o.choices.map(([v, label]) => h('button', { 'aria-pressed': String(chosen[o.key] === v),
-      onclick: e => { chosen[o.key] = v; for(const b of e.currentTarget.parentNode.children) b.setAttribute('aria-pressed', String(b === e.currentTarget)); } }, label));
-    return h('div', { class:'opt-group', role:'group', 'aria-label': o.label }, h('h3', {}, o.label), h('div', { class: o.choices.length > 4 ? 'opt-chips' : 'stack' }, btns));
+    const cur = o.key in saved && o.choices.some(([v]) => v === saved[o.key]) ? saved[o.key] : o.default;
+    return h('fieldset', { class:'opt-group' }, h('legend', {}, o.label),
+      h('div', { class: o.choices.length > 4 ? 'opt-chips' : 'stack' }, o.choices.map(([v, label], i) =>
+        h('label', { class:'choice' }, h('input', { type:'radio', name:'opt-' + o.key, value: String(i), checked: v === cur }), h('span', {}, label)))));
   });
+  const read = () => Object.fromEntries((game.options || []).map(o => {
+    const el = $('#dlgBody').querySelector(`input[name="opt-${o.key}"]:checked`);
+    return [o.key, el ? o.choices[+el.value][0] : o.default];
+  }));
   dialog(h('h2', {}, `${game.name}`), h('p', { class:'muted' }, game.blurb), groups,
     h('div', { class:'sticky-go' }, h('button', { class:'primary', onclick: async () => {
+      const chosen = read();
       settings.set({ ['opts_' + game.id]: chosen }); closeDialog();
       toast(`Shuffling…`, 8000); await new Promise(r => setTimeout(r, 30));
       const recipe = game.newRecipe(randSeed(), chosen);
@@ -523,7 +531,7 @@ $('#openSettings').onclick = () => {
     isIOS && !installed() ? h('div', { class:'card keep-safe', style:'margin-top:14px' }, h('h3', {}, 'Keep everything safe'), h('p', {}, 'Safari may clear saved games after a week away. Add this app to your Home Screen to keep your games, scrapbook and songs: tap the Share button, then “Add to Home Screen”.')) : null,
     h('details', { style:'margin-top:16px' }, h('summary', { style:'font-weight:700;cursor:pointer;min-height:44px' }, 'Accessibility'),
       h('p', {}, 'Made to work with screen readers (VoiceOver, TalkBack, NVDA), a keyboard alone, browser zoom up to 400%, and the larger-text, high-contrast and less-movement choices above. Solitaire can be played fully by keyboard or screen reader. Jigsaw puzzles are a picture game, so they need sight, but every control has a spoken name and pieces can be moved with the arrow keys.')),
-    h('p', { class:'muted', style:'margin-top:18px' }, 'Your games and photos stay on this device. Shared photos travel inside the link itself. Surprise photos come from Lorem Picsum (Unsplash photographers); music from the Internet Archive.'));
+    h('p', { class:'muted', style:'margin-top:18px' }, `Version ${APP_VERSION}. `, 'Your games and photos stay on this device. Shared photos travel inside the link itself. Surprise photos come from Lorem Picsum (Unsplash photographers); music from the Internet Archive.'));
 };
 
 // ---------------- backup & restore ----------------
