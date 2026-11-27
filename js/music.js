@@ -12,21 +12,25 @@ const BASE = 'collection:georgeblood AND mediatype:audio AND year:[1900 TO 1925]
 const SILENT = 'data:audio/wav;base64,UklGRrQBAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YZABAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA';
 const MIN_SEC = 60, MAX_SEC = 480, FADE_MS = 1500, FETCH_MS = 12000;
 
+import { MOODS, createSongPlayer } from './compose.js';
+
+// Made-up music first (calm, clean, works offline); the real 1900–1925 records are the 'Nostalgia' group.
 export const STATIONS = [
-  { id: 'parlor',   name: 'Parlor Songs',    emoji: '🎙️', blurb: 'Sing-along songs of 1900–1925',
+  ...MOODS.map(m => ({ id: 'mood-' + m.id, name: m.name, emoji: m.emoji, blurb: m.blurb + ' — made up on this device' })),
+  { group: 'nostalgia', id: 'parlor',   name: 'Parlor Songs',    emoji: '🎙️', blurb: 'Sing-along songs of 1900–1925',
     q: '(subject:"Popular Music" OR subject:Vocal OR subject:Ballad OR subject:Song)' },
-  { id: 'dance',    name: 'Ballroom',        emoji: '💃', blurb: 'Waltzes, fox trots and tangos',
+  { group: 'nostalgia', id: 'dance',    name: 'Ballroom',        emoji: '💃', blurb: 'Waltzes, fox trots and tangos',
     q: '(subject:Waltz OR subject:"Fox Trot" OR subject:"Fox-Trot" OR subject:Tango OR subject:Polka)' },
-  { id: 'concert',  name: 'Concert Hall',    emoji: '🎻', blurb: 'Violins, orchestras and instrumentals',
+  { group: 'nostalgia', id: 'concert',  name: 'Concert Hall',    emoji: '🎻', blurb: 'Violins, orchestras and instrumentals',
     q: '(subject:Classical OR subject:Orchestral OR subject:Instrumental)' },
-  { id: 'hawaiian', name: 'Hawaiian Breeze', emoji: '🌺', blurb: 'Steel guitars and island songs',
+  { group: 'nostalgia', id: 'hawaiian', name: 'Hawaiian Breeze', emoji: '🌺', blurb: 'Steel guitars and island songs',
     q: 'subject:Hawaiian' },
   { id: 'musicbox', name: 'Music Box',       emoji: '🎶', blurb: 'Gentle made-up tunes — works without internet' },
 ];
 
 function loadSettings() {
   try { const s = JSON.parse(localStorage.getItem(KEY)); if (s) return s; } catch (_) {}
-  return { on: false, station: 'parlor', volume: 0.5, restore: true };
+  return { on: false, station: 'mood-calm', volume: 0.5, restore: true };
 }
 function saveSettings(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (_) {} }
 
@@ -217,7 +221,8 @@ async function probeCors(url) {        // can WebAudio read this file? (headers 
 // ------------------------------------------------------------------ public player
 export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
   const settings = loadSettings();
-  if (!STATIONS.some(s => s.id === settings.station)) settings.station = 'parlor';
+  if (!STATIONS.some(s => s.id === settings.station)) settings.station = 'mood-calm';
+  let songs = null, songCtx = { seed: (Math.random() * 2 ** 31) >>> 0 };
   let volume = Math.min(1, Math.max(0, Number(settings.volume ?? 0.5)));
   let playing = false, state = 'paused', fallback = false, failures = 0, gen = 0, retryAfter = 0;
   let ctx = null, boxGain = null;
@@ -374,8 +379,15 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
 
   function start() {
     const myGen = ++gen; failures = 0; fallback = false;
-    box.stop(); boxFade(0, 300);
-    if (station().id === 'musicbox') {
+    box.stop(); boxFade(0, 300); songs?.stop(1.5);
+    if (station().id.startsWith('mood-')) {          // composed songs: same seed → same song, endless variations
+      if (cur) { const c = cur; cur = null; fade(c.el, 0, FADE_MS, () => killAudio(c)); }
+      killAudio(nxt); nxt = null; ensureCtx();
+      songs ||= createSongPlayer(ctx, boxGain);
+      const st = station();
+      songs.playSeries({ seed: songCtx.seed, mood: st.id.slice(5), onSong: song => onTrack({ title: song.title, artist: 'Composed on this device', year: null, url: null, image: null, station: st.id }) });
+      boxFade(volume * 0.9, FADE_MS); setState('playing');
+    } else if (station().id === 'musicbox') {
       if (cur) { const c = cur; cur = null; fade(c.el, 0, FADE_MS, () => killAudio(c)); }
       killAudio(nxt); nxt = null; startBox(false);
     } else {
@@ -393,7 +405,7 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
     },
     stop() {
       gen++; playing = false; settings.on = false; saveSettings(settings);
-      box.stop(); boxFade(0, 400);
+      box.stop(); songs?.stop(0.4); boxFade(0, 400);
       for (const t of [cur, nxt]) if (t) { const x = t; fade(x.el, 0, 600, () => killAudio(x)); }
       cur = null; nxt = null; setState('paused');
     },
@@ -402,7 +414,7 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
     setVolume(v) {
       volume = Math.min(1, Math.max(0, Number(v) || 0)); settings.volume = volume; saveSettings(settings);
       if (cur && !cur.out) { stopFade(cur.el); setLevel(cur.el, volume); }
-      if (ctx && (station().id === 'musicbox' || fallback) && playing) boxFade(volume * 0.9, 150);
+      if (ctx && (station().id === 'musicbox' || station().id.startsWith('mood-') || fallback) && playing) boxFade(volume * 0.9, 150);
     },
     setRestore(on) {
       settings.restore = !!on; saveSettings(settings);
@@ -410,6 +422,8 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
     },
     get restore() { return settings.restore !== false; },
     get cleanMode() { return mode; },              // 'clean' | 'plain' | null (not decided yet)
+    /** Each puzzle gets its own song: the seed comes from the puzzle. */
+    setContext({ seed } = {}) { if (Number.isFinite(seed)) songCtx.seed = seed >>> 0; if (playing && station().id.startsWith('mood-')) start(); },
     get volume() { return volume; },
     get playing() { return playing; },
     get station() { return settings.station; },

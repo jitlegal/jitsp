@@ -2,7 +2,7 @@
 // Music, surprise photos and other outside data always go to the network and are never cached here.
 const CACHE = 'family-puzzles-v3';
 const SHELL = ['./', 'index.html', 'css/app.css', 'js/main.js', 'js/engine.js', 'js/store.js', 'js/share.js', 'js/backup.js',
-  'js/scenes.js', 'js/music.js', 'js/restore-worklet.js', 'js/games/registry.js', 'js/games/jigsaw.js', 'js/games/solitaire.js', 'css/solitaire.css', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
+  'js/scenes.js', 'js/music.js', 'js/compose.js', 'js/restore-worklet.js', 'js/games/registry.js', 'js/games/jigsaw.js', 'js/games/solitaire.js', 'css/solitaire.css', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
 const CDN = ['https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js', 'https://fonts.googleapis.com/', 'https://fonts.gstatic.com/'];
 
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())));

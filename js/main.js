@@ -40,7 +40,7 @@ let onDlgClose = null, dlgOpener = null;
 function dialog(...nodes){
   const b = $('#dlgBody'), wasOpen = !$('#dlg').classList.contains('hidden');
   if(!wasOpen) dlgOpener = document.activeElement;
-  b.replaceChildren(...nodes.flat().filter(n => n != null && n !== false));
+  b.replaceChildren(...nodes.flat(Infinity).filter(n => n != null && n !== false));
   const t = b.querySelector('h2'); if(t) t.id = 'dlgTitle';
   $('#dlg').classList.remove('hidden');
   (b.querySelector('[autofocus]') || $('#dlg .sheet')).focus();
