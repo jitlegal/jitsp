@@ -454,7 +454,10 @@ class Solitaire {
     }
     if (!M.t[to].c.length) return 'Only a king can go in an empty column.';
     if (rankOf(c) === 12) return 'A king can only go in an empty column.';
-    return `${name} needs a ${isRed(c) ? 'black' : 'red'} ${RANK_NAME[rankOf(c) + 1]} to sit on.`;
+    // Name the suits, not colours: in the four-colour deck diamonds are blue and clubs green,
+    // so "red" or "black" would point at the wrong-looking cards.
+    const want = isRed(c) ? 'club or spade' : 'heart or diamond', rank = RANK_NAME[rankOf(c) + 1];
+    return this.recipe?.c === 2 ? `${name} needs a ${isRed(c) ? 'black' : 'red'} ${rank} (${want}) to sit on.` : `${name} needs a ${want} ${rank} to sit on.`;
   }
   /** The best single move for a card (tap / Enter): home when safe, else a helpful column, else home. */
   _best(from, i) {
