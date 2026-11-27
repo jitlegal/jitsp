@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Solitaire test harness</title>
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/solitaire.css">
+<style>
+  html,body{margin:0;height:100%;background:var(--felt)}
+  #host{position:fixed;inset:0}
+  #log{position:fixed;left:-9999px}
+</style>
+</head>
+<body>
+<!-- Developer harness: mounts the Solitaire plug-in full-window with stub hooks.
+     Query: ?seed=123&draw=1|3&colors=4|2&scale=1|1.25|1.5&contrast=high&motion=reduce&announce=hook -->
+<div id="host"></div>
+<div id="log" aria-hidden="true"></div>
+<script type="module">
+  import G from './js/games/solitaire.js';
+  const q = new URLSearchParams(location.search);
+  if (q.get('contrast')) document.documentElement.dataset.contrast = q.get('contrast');
+  if (q.get('motion')) document.documentElement.dataset.motion = q.get('motion');
+  const host = document.getElementById('host');
+  if (q.get('scale')) host.style.setProperty('--card-scale', q.get('scale'));
+  window.events = []; window.said = [];
+  const hooks = {
+    onProgress: (d, t) => events.push(['progress', d, t]),
+    onChange: () => events.push(['change']),
+    onComplete: () => events.push(['complete']),
+    onPlace: last => events.push(['place', last]),
+    onTouch: () => {},
+    onZoomable: z => events.push(['zoomable', z]),
+  };
+  if (q.get('announce') === 'hook') hooks.announce = t => said.push(t);
+  const t0 = performance.now();
+  const recipe = G.newRecipe(+(q.get('seed') || 2024), { draw: +(q.get('draw') || 1), colors: +(q.get('colors') || 4) });
+  window.solveMs = performance.now() - t0;
+  window.G = G; window.recipe = recipe;
+  window.game = G.create(host, hooks);
+  await game.load(recipe, {});
+  addEventListener('resize', () => game.resize());
+  window.ready = true;
+</script>
+</body>
+</html>

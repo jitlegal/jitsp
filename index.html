@@ -3,43 +3,52 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Family Jigsaw</title>
-<meta name="description" content="Relaxing jigsaw puzzles from your own photos or painted pictures. Share puzzles with family by link or QR code.">
+<title>Family Puzzles</title>
+<meta name="description" content="Relaxing jigsaw puzzles and Solitaire, made for grandparents. Share games with family by link or QR code.">
 <meta name="theme-color" content="#24463c">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<script>
+  // Apply look-and-feel settings before anything paints (no flash): text size, contrast, motion.
+  try{ const s = JSON.parse(localStorage.getItem('jig.settings') || '{}'), d = document.documentElement;
+    if(s.textScale) d.style.setProperty('--ui-zoom', s.textScale);
+    if(s.contrast === 'high') d.dataset.contrast = 'high';
+    if(s.motion === 'reduce' || matchMedia('(prefers-reduced-motion: reduce)').matches) d.dataset.motion = 'reduce'; }catch(_){}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Fraunces:opsz,wght@9..144,600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/solitaire.css">
 <!-- Third-party code from CDN only, pinned + integrity-checked -->
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"
         integrity="sha384-8FWZA6BGMXhsfO+BLtrJK0We6gg5o1JyO8xQm6peWDEUs17ACA5ziE/NIAkl9z2k" crossorigin="anonymous" defer></script>
 </head>
 <body>
+<a class="skip" href="#pickHeading">Skip to the games</a>
 
 <!-- ================= HOME ================= -->
 <main id="home" class="screen">
   <header class="top">
     <h1 id="greet">Hello!</h1>
     <div class="top-btns">
-      <button class="round" id="homeMusic" aria-label="Music">🎵</button>
-      <button class="round" id="openSettings" aria-label="Settings">⚙️</button>
+      <button class="round" id="homeMusic" aria-label="Music"><span aria-hidden="true">🎵</span></button>
+      <button class="round" id="openSettings" aria-label="Settings"><span aria-hidden="true">⚙️</span></button>
     </div>
   </header>
 
-  <section id="continueCard" class="card continue hidden">
-    <img id="continueThumb" alt="">
+  <section id="continueCard" class="card continue hidden" aria-labelledby="continueText">
+    <div class="continue-pic"><img id="continueThumb" alt=""><span id="continueEmoji" aria-hidden="true"></span></div>
     <div>
-      <p class="big" id="continueText">Your puzzle is waiting</p>
-      <button class="primary" id="continueBtn">Keep going ▶</button>
+      <p class="big" id="continueText">Your game is waiting</p>
+      <button class="primary" id="continueBtn">Keep going <span aria-hidden="true">▶</span></button>
     </div>
   </section>
 
-  <section class="card today">
-    <div class="today-pic"><canvas id="todayPic" width="480" height="360" aria-hidden="true"></canvas></div>
+  <section class="card today" aria-labelledby="todayName">
+    <div class="today-pic"><canvas id="todayPic" width="480" height="360" role="img" aria-label="Preview of today's painted picture"></canvas></div>
     <div class="today-text">
       <p class="eyebrow">Today's puzzle</p>
       <h2 id="todayName">…</h2>
@@ -48,45 +57,54 @@
     </div>
   </section>
 
-  <h2 class="section">Or pick a picture</h2>
-  <section class="tiles">
-    <button class="tile" id="photoBtn"><span>📷</span>My own photo</button>
-    <button class="tile" id="paintBtn"><span>🎨</span>Painted pictures</button>
-    <button class="tile" id="surpriseBtn"><span>🌍</span>Surprise photo</button>
-    <button class="tile hidden" id="familyBtn"><span>👪</span>Family album</button>
-    <button class="tile" id="albumBtn"><span>🖼️</span>My finished puzzles</button>
+  <h2 class="section" id="pickHeading" tabindex="-1">Jigsaw puzzles</h2>
+  <section class="tiles" aria-labelledby="pickHeading">
+    <button class="tile" id="photoBtn"><span aria-hidden="true">📷</span>My own photo</button>
+    <button class="tile" id="paintBtn"><span aria-hidden="true">🎨</span>Painted pictures</button>
+    <button class="tile" id="surpriseBtn"><span aria-hidden="true">🌍</span>Surprise photo</button>
+    <button class="tile hidden" id="familyBtn"><span aria-hidden="true">👪</span>Family album</button>
   </section>
-  <p class="foot muted">Everything stays on this device. Music: public-domain records from 1900–1925, courtesy of the Internet Archive.</p>
+
+  <h2 class="section" id="gamesHeading">More games</h2>
+  <section class="tiles" id="gameTiles" aria-labelledby="gamesHeading"></section>
+
+  <h2 class="section" id="keepHeading">Keepsakes</h2>
+  <section class="tiles" aria-labelledby="keepHeading">
+    <button class="tile" id="albumBtn"><span aria-hidden="true">🖼️</span>My scrapbook</button>
+  </section>
+  <p class="foot">Everything stays on this device. Music: public-domain records from 1900–1925, courtesy of the Internet Archive.</p>
   <input id="file" type="file" accept="image/*" hidden>
 </main>
 
 <!-- ================= PLAY ================= -->
-<section id="play" class="screen hidden">
-  <nav class="bar">
-    <button id="homeBtn" aria-label="Home">🏠<span class="lbl"> Home</span></button>
-    <button id="peekBtn" aria-pressed="false">👀<span class="lbl"> Show picture</span></button>
-    <button id="tidyBtn">🧹<span class="lbl"> Tidy</span></button>
-    <button id="helpBtn" class="gold">💡<span class="lbl"> Help me</span></button>
-    <button id="zoomOut" class="zoom hidden" aria-label="Zoom out">➖</button>
-    <button id="zoomIn" class="zoom hidden" aria-label="Zoom in">➕</button>
-    <button id="seeAll" class="zoom hidden">🔍<span class="lbl"> See all</span></button>
-    <button id="playMusic" aria-label="Music">🎵</button>
-    <button id="shareNow" aria-label="Send to family">💌</button>
-    <span id="count" aria-live="polite"></span>
+<section id="play" class="screen hidden" aria-label="Game">
+  <nav class="bar" aria-label="Game controls">
+    <button id="homeBtn" aria-label="Home"><span aria-hidden="true">🏠</span><span class="lbl" aria-hidden="true"> Home</span></button>
+    <button id="undoBtn" class="hidden" aria-label="Undo"><span aria-hidden="true">↩️</span><span class="lbl" aria-hidden="true"> Undo</span></button>
+    <button id="peekBtn" class="hidden" aria-pressed="false" aria-label="Show picture"><span aria-hidden="true">👀</span><span class="lbl" aria-hidden="true"> Show picture</span></button>
+    <button id="tidyBtn" class="hidden" aria-label="Tidy the pieces"><span aria-hidden="true">🧹</span><span class="lbl" aria-hidden="true"> Tidy</span></button>
+    <button id="helpBtn" class="gold" aria-label="Help me"><span aria-hidden="true">💡</span><span class="lbl" aria-hidden="true"> Help me</span></button>
+    <button id="zoomOut" class="zoom hidden" aria-label="Zoom out"><span aria-hidden="true">➖</span></button>
+    <button id="zoomIn" class="zoom hidden" aria-label="Zoom in"><span aria-hidden="true">➕</span></button>
+    <button id="seeAll" class="zoom hidden" aria-label="See the whole table"><span aria-hidden="true">🔍</span><span class="lbl" aria-hidden="true"> See all</span></button>
+    <button id="playMusic" aria-label="Music"><span aria-hidden="true">🎵</span></button>
+    <button id="shareNow" aria-label="Send to family"><span aria-hidden="true">💌</span></button>
+    <span id="count" role="status"></span>
   </nav>
-  <canvas id="cv"></canvas>
-  <img id="thumb" alt="The finished picture. Tap to show it faintly on the board.">
-  <div id="tip" class="tip hidden">Tap a piece, then tap where it goes — or drag it.</div>
+  <div id="stage"></div>
+  <button id="thumbBtn" class="hidden" aria-label="Show the finished picture faintly on the board"><img id="thumb" alt=""></button>
+  <div id="tip" class="tip hidden" role="note"></div>
 </section>
 
 <!-- ================= DIALOGS ================= -->
-<div id="dlg" class="overlay hidden" role="dialog" aria-modal="true">
+<div id="dlg" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
   <div class="sheet" tabindex="-1">
-    <button class="close" id="dlgClose" aria-label="Close">✕</button>
+    <button class="close" id="dlgClose" aria-label="Close"><span aria-hidden="true">✕</span></button>
     <div id="dlgBody"></div>
   </div>
 </div>
-<div id="toast" class="toast hidden" role="status"></div>
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+<div id="announce" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
 <script type="module" src="js/main.js"></script>
 </body>

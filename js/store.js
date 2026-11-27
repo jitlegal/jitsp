@@ -27,18 +27,18 @@ async function tx(store, mode, fn){
   const d = await db();
   return new Promise((ok, fail) => {
     const t = d.transaction(store, mode), s = t.objectStore(store), req = fn(s);
-    t.oncomplete = () => ok(req && req.result); t.onerror = () => fail(t.error);
+    t.oncomplete = () => ok(req && req.result); t.onerror = () => fail(t.error); t.onabort = () => fail(t.error || new Error('aborted'));   // e.g. storage full
   });
 }
 
 // ---------- puzzle in progress ----------
 // recipe: what the puzzle is (shareable); state: where pieces are; image: Blob of the picture.
 export const current = {
-  async save({recipe, state, seconds, image}){
-    LS.set('jig.current', { recipe, state, seconds, sv: 2, at: Date.now() });
+  async save({recipe, state, seconds, progress, image}){
+    LS.set('jig.current', { g: recipe.g || 'jigsaw', recipe, state, seconds, progress: progress || null, sv: 2, at: Date.now() });
     if(image) await tx('images','readwrite', s => s.put(image, 'current')).catch(()=>{});
   },
-  saveState(state, seconds){ const c = LS.get('jig.current'); if(c){ c.state = state; c.seconds = seconds; c.sv = 2; c.at = Date.now(); LS.set('jig.current', c); } },
+  saveState(state, seconds, progress){ const c = LS.get('jig.current'); if(c){ c.state = state; c.seconds = seconds; if(progress) c.progress = progress; c.g = c.recipe?.g || 'jigsaw'; c.sv = 2; c.at = Date.now(); LS.set('jig.current', c); } },
   get(){ return LS.get('jig.current', null); },
   async image(){ try{ return await tx('images','readonly', s => s.get('current')); }catch(_){ return null; } },
   clear(){ LS.del('jig.current'); },

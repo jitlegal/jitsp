@@ -15,17 +15,18 @@ export function makeLink(recipe, img){
   if(img){ const [head, data] = img.split(','); h += '&y=' + (head.includes('webp')?'w':'j') + '&i=' + data.replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
   return base + '#' + h;
 }
+/** Parse a shared link. Returns { raw, img } — raw is UNTRUSTED: the game's normalize() must validate it. */
 export function readLink(hash = location.hash){
-  if(!hash.startsWith('#p=')) return null;
+  if(typeof hash !== 'string' || !hash.startsWith('#p=') || hash.length > 400000) return null;
   try{
-    const q = new URLSearchParams(hash.slice(1));
-    const recipe = JSON.parse(unutf8(unb64url(q.get('p'))));
-    if(!recipe || !recipe.src || !recipe.n) return null;
-    let img = null;
-    if(q.get('i')){ const d = q.get('i').replace(/-/g,'+').replace(/_/g,'/');
+    const q = new URLSearchParams(hash.slice(1)), p = q.get('p') || '';
+    if(p.length > 4000) return null;                                   // recipes are tiny; refuse anything else
+    const raw = JSON.parse(unutf8(unb64url(p)));
+    if(!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    let img = null; const i = q.get('i');
+    if(i && /^[A-Za-z0-9_-]+$/.test(i) && i.length < 300000){ const d = i.replace(/-/g,'+').replace(/_/g,'/');
       img = `data:image/${q.get('y')==='w'?'webp':'jpeg'};base64,` + d + '='.repeat((4-d.length%4)%4); }
-    recipe.n = Math.min(1000, Math.max(4, recipe.n|0)); recipe.k = recipe.k|0;
-    return { recipe, img };
+    return { raw, img };
   }catch(_){ return null; }
 }
 
@@ -82,7 +83,7 @@ export const smsHref = body => 'sms:?&body=' + encodeURIComponent(body);
 export const mailHref = (subject, body) => `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 
 /** A keepsake "postcard" image of the finished puzzle, with a QR code to play it when possible. */
-export async function postcard({image, name, pieces, seconds, title, link}){
+export async function postcard({image, name, pieces, seconds, title, link, line}){
   const W = 1080, H = 1350, c = document.createElement('canvas'); c.width = W; c.height = H;
   const g = c.getContext('2d');
   g.fillStyle = '#fbf4e6'; g.fillRect(0,0,W,H);
@@ -100,7 +101,7 @@ export async function postcard({image, name, pieces, seconds, title, link}){
   g.fillText(name ? `${name} finished it!` : 'Puzzle finished!', 80, ty, tw);
   g.font = '34px Georgia, serif'; g.fillStyle = '#5a4a3a';
   const mins = Math.max(1, Math.round(seconds/60));
-  g.fillText(`${pieces} pieces · ${mins} minute${mins===1?'':'s'}`, 80, ty+60, tw);
+  g.fillText(line || `${pieces} pieces · ${mins} minute${mins===1?'':'s'}`, 80, ty+60, tw);
   if(title) g.fillText(title, 80, ty+108, tw);
   g.fillText(new Date().toLocaleDateString(undefined, {weekday:'long', month:'long', day:'numeric'}), 80, ty+156, tw);
   if(qr){

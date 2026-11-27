@@ -239,6 +239,8 @@ export class Puzzle {
     requestAnimationFrame(step);
   }
   _camMoved(final){ clearTimeout(this._crisp); if(final) this.dirty = true; else this._crisp = setTimeout(()=>{ this.dirty = true; this._raf(); }, 140); this._raf(); }
+  /** Keep a piece in view (keyboard play on big tables). */
+  _follow(pc){ const {cw,ch} = this.board; if(this.zoomable && !(this._visible(pc.x,pc.y) && this._visible(pc.x+cw,pc.y+ch))) this._camTo(this.cam.s, pc.x+cw/2, pc.y+ch/2, 200); }
   _visible(wx, wy){ const c = this.cam, sx = wx*c.s+c.ox, sy = wy*c.s+c.oy; return sx > 0 && sy > 0 && sx < this.SW && sy < this.SH; }
 
   // ---------- drawing ----------
@@ -262,7 +264,9 @@ export class Puzzle {
       g.strokeStyle = 'rgba(0,0,0,.30)'; g.translate(2/s,2/s); g.stroke(pc.path); g.translate(-1/s,-1/s);
     }
     g.restore();
-    g.save(); if(!local) g.translate(pc.x, pc.y); g.lineWidth = 1/s; g.strokeStyle = 'rgba(0,0,0,.45)'; g.stroke(pc.path); g.restore();
+    g.save(); if(!local) g.translate(pc.x, pc.y);
+    if(!pc.placed){ g.lineWidth = 2.2/s; g.strokeStyle = 'rgba(255,250,235,.55)'; g.stroke(pc.path); }   // light rim: dark pieces stay visible on the dark table
+    g.lineWidth = 1/s; g.strokeStyle = 'rgba(0,0,0,.45)'; g.stroke(pc.path); g.restore();
   }
   /** A piece's picture rendered once at (roughly) the current zoom, then re-used: ~1000 cheap copies instead of
    *  1000 cut-outs with outlines. Zoom levels are bucketed in √2 steps; least-recently-used sprites are dropped. */
@@ -328,19 +332,20 @@ export class Puzzle {
     for(let i=this.pieces.length-1;i>=0;i--){ const pc = this.pieces[i];
       if(pc.placed || pc.anim || wx < pc.x-pad || wy < pc.y-pad || wx > pc.x+cw+pad || wy > pc.y+ch+pad) continue;
       if(ctx.isPointInPath(pc.path, wx-pc.x, wy-pc.y)) return pc; }
-    let best = null, bd = Math.max(Math.min(cw,ch)*0.7, 24/this.cam.s);          // forgiving near-miss for fingers
+    let best = null, bd = Math.max(Math.min(cw,ch)*0.7, 34/this.cam.s);          // forgiving near-miss for unsteady fingers
     for(const pc of this.pieces){ if(pc.placed || pc.anim) continue;
       const d = Math.hypot(wx-(pc.x+cw/2), wy-(pc.y+ch/2)); if(d<bd){ bd=d; best=pc; } }
     return best;
   }
   _toTop(pc){ const i = this.pieces.indexOf(pc); if(i >= 0){ this.pieces.splice(i,1); this.pieces.push(pc); } }
-  _near(pc){ const [tx,ty] = this.target(pc); return Math.hypot(pc.x-tx, pc.y-ty) < Math.max(Math.min(this.board.cw,this.board.ch)*0.45, 14/this.cam.s); }
+  _near(pc){ const [tx,ty] = this.target(pc); return Math.hypot(pc.x-tx, pc.y-ty) < Math.max(Math.min(this.board.cw,this.board.ch)*0.45, 28/this.cam.s); }
   _bind(){
     const cv = this.cv, ptrs = new Map(); let g = null;      // g: current gesture (owned by pointer g.id)
     this._resetGesture = () => { ptrs.clear(); g = null; };
     const endDrag = (snap) => { const pc = this.drag; this.drag = null; if(!pc || pc.placed) return;
       if(snap && this._near(pc)) this._lock(pc); else { this.dirty = true; this._changed(); } };
     const stale = pc => pc.placed || pc.anim;                   // the piece changed under the finger
+    let lastTap = null;
     cv.addEventListener('pointerdown', e => {
       if(!this.board || this.done || this._busy) return;
       try{ cv.setPointerCapture(e.pointerId); }catch(_){}   // some browsers refuse capture (e.g. after a cancel); carry on
@@ -353,8 +358,9 @@ export class Puzzle {
       }
       if(ptrs.size > 1) return;                                      // extra fingers on small puzzles are ignored
       const pc = this._pick(...p);
-      if(pc){ g = { type:'piece', id:e.pointerId, pc, start:p, moved:false }; const [wx,wy] = this._w(...p); pc.dx = wx-pc.x; pc.dy = wy-pc.y; }
-      else g = { type:'table', id:e.pointerId, start:p, cam:{...this.cam}, moved:false };
+      const slop = e.pointerType === 'mouse' ? 6 : 16;              // a wobbly finger-tap is still a tap
+      if(pc){ g = { type:'piece', id:e.pointerId, pc, start:p, moved:false, slop }; const [wx,wy] = this._w(...p); pc.dx = wx-pc.x; pc.dy = wy-pc.y; }
+      else g = { type:'table', id:e.pointerId, start:p, cam:{...this.cam}, moved:false, slop };
     });
     cv.addEventListener('pointermove', e => {
       if(!ptrs.has(e.pointerId) || !g) return;
@@ -366,7 +372,7 @@ export class Puzzle {
         this._camMoved(); return;
       }
       if(e.pointerId !== g.id) return;                               // only the finger that started it
-      const far = Math.hypot(p[0]-g.start[0], p[1]-g.start[1]) > 8;
+      const far = Math.hypot(p[0]-g.start[0], p[1]-g.start[1]) > (g.slop || 8);
       if(g.type === 'piece'){
         if(stale(g.pc)){ if(this.drag === g.pc) this.drag = null; g = null; this.dirty = true; this._raf(); return; }
         if(!g.moved && far){ g.moved = true; this.drag = g.pc; this._toTop(g.pc); if(this.sel === g.pc) this.sel = null; this.dirty = true; }
@@ -400,6 +406,11 @@ export class Puzzle {
       }
       if(was.type === 'table'){
         if(was.moved){ this._camMoved(true); return; }
+        const now = performance.now();
+        if(this.zoomable && !this.sel && lastTap && now - lastTap.t < 450 && Math.hypot(p[0]-lastTap.p[0], p[1]-lastTap.p[1]) < 40){
+          lastTap = null; const [wx,wy] = this._w(...p); this._camTo(this.cam.s*2, wx, wy, 250); return;   // double-tap: zoom in there
+        }
+        lastTap = { t: now, p };
         if(this.sel && !stale(this.sel)){ const pc = this.sel, [wx,wy] = this._w(...p); this.sel = null;   // tap a spot: move the chosen piece there
           this._glide(pc, wx-this.board.cw/2, wy-this.board.ch/2, 240, () => this._near(pc) ? this._lock(pc) : this._changed()); }
       }
@@ -414,6 +425,42 @@ export class Puzzle {
       g = null; this._camMoved(true);
     });
     let lastSideways = 0;
+    // ---- keyboard play (WCAG 2.1.1): Tab to the table, arrows pick a piece, arrows move it, Enter drops it ----
+    cv.tabIndex = 0;
+    const say = t => this.hooks.announce?.(t);
+    const loose = () => this.pieces.filter(p => !p.placed && !p.anim);
+    const pickNext = dir => {
+      const L = loose(); if(!L.length) return;
+      L.sort((a,b) => a.y - b.y || a.x - b.x);                 // reading order on the table
+      const i = this.sel ? L.indexOf(this.sel) : -1, pc = L[(i + dir + L.length) % L.length];
+      this.sel = pc; this._toTop(pc); this.dirty = true; this._follow(pc); this._raf();
+      say(`Piece selected${pc.edge ? ', an edge piece' : ''}. ${L.length} left. Arrow keys move it, Enter drops it.`);
+    };
+    cv.addEventListener('keydown', e => {
+      if(!this.board || this.done || this._busy) return;
+      const k = e.key, {cw,ch} = this.board, step = e.shiftKey ? 0.1 : 0.5;
+      const arrows = { ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1] };
+      if(k === 'h' || k === 'H'){ this.help(); e.preventDefault(); return; }
+      if(k === '+' || k === '='){ this.zoomIn(); e.preventDefault(); return; }
+      if(k === '-' || k === '_'){ this.zoomOut(); e.preventDefault(); return; }
+      if(k === 'n' || k === 'N'){ pickNext(1); e.preventDefault(); return; }
+      if(k === 'p' || k === 'P'){ pickNext(-1); e.preventDefault(); return; }
+      if(k === 'Escape' && this.sel){ this.sel = null; this.dirty = true; this._raf(); say('Piece put down.'); e.preventDefault(); return; }
+      if(arrows[k]){
+        e.preventDefault();
+        if(!this.sel || this.sel.placed){ pickNext(arrows[k][0] + arrows[k][1] >= 0 ? 1 : -1); return; }
+        const pc = this.sel, w = this.world;
+        pc.x = Math.min(w.x+w.w-cw*.5, Math.max(w.x-cw*.5, pc.x + arrows[k][0]*cw*step));
+        pc.y = Math.min(w.y+w.h-ch*.5, Math.max(w.y-ch*.5, pc.y + arrows[k][1]*ch*step));
+        this._follow(pc); this._raf(); return;
+      }
+      if((k === 'Enter' || k === ' ') && this.sel){
+        e.preventDefault(); const pc = this.sel;
+        if(this._near(pc)){ this._lock(pc); say(`It fits! ${this.placedCount} of ${this.pieces.length} placed.`); }
+        else { this.sel = null; this.dirty = true; this._changed(); say('Not quite there. The piece is set down; press N to pick it up again.'); }
+      }
+    });
+    cv.addEventListener('focus', () => { if(!this.done) say('Puzzle table. Press the arrow keys or N to pick a piece, arrows to move it, Enter to drop it, H for help.'); });
     cv.addEventListener('wheel', e => {
       if(!this.board || !this.zoomable) return;
       e.preventDefault();

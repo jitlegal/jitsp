@@ -1,0 +1,85 @@
+/* Klondike Solitaire — big, calm, high-contrast cards. Sizes come from JS: --cw --ch (card), --rk (rank), --pip. */
+.sol{position:absolute;inset:0;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;
+  font-family:var(--font,'Atkinson Hyperlegible',system-ui,sans-serif);--focus:#ffd54f;--table-line:rgba(255,250,235,.72)}
+.sol-defs{position:absolute;width:0;height:0;overflow:hidden}
+.sol-sr{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+
+/* piles: the outline of an empty place on the table (3:1+ against the felt) */
+.sol-pile{position:absolute;box-sizing:border-box;border-radius:calc(var(--cw)*.09);outline:none}
+.sol-pile::before{content:"";position:absolute;left:0;top:0;width:var(--cw);height:var(--ch);box-sizing:border-box;
+  border:3px solid var(--table-line);border-radius:calc(var(--cw)*.09);opacity:.55}
+.sol-col::before{border-style:dashed}
+.sol-mark{position:absolute;left:0;top:0;width:var(--cw);height:var(--ch);display:flex;align-items:center;justify-content:center;
+  color:var(--table-line);font-weight:700;font-size:calc(var(--cw)*.42);opacity:.55;pointer-events:none}
+.sol-mark-suit{width:45%;height:45%;fill:currentColor}
+.sol-col .sol-mark{opacity:0}
+.sol-col.empty .sol-mark{opacity:.55}
+.sol-stock .sol-mark{opacity:0;font-size:calc(var(--cw)*.6)}
+.sol-stock.can-recycle .sol-mark{opacity:.9}
+/* keyboard focus: thick, high-contrast ring with a dark halo so it shows on light cards and dark felt */
+.sol-pile:focus-visible{outline:4px solid var(--focus);outline-offset:4px;box-shadow:0 0 0 8px rgba(0,0,0,.65)}
+
+/* cards */
+.sol-card{position:absolute;left:0;top:0;width:var(--cw);height:var(--ch);box-sizing:border-box;border-radius:calc(var(--cw)*.09);
+  background:#fff;border:1px solid rgba(0,0,0,.28);box-shadow:0 1px 2px rgba(0,0,0,.35),0 3px 8px rgba(0,0,0,.2);
+  transition:transform .24s cubic-bezier(.2,.7,.3,1),translate .2s ease,box-shadow .2s;will-change:transform;cursor:pointer;outline:none}
+.sol-card.s0{color:#111}.sol-card.s1{color:#c62828}.sol-card.s2{color:#c62828}.sol-card.s3{color:#111}
+.c4 .sol-card.s2{color:#1558b0}.c4 .sol-card.s3{color:#1b6e2a}
+.sol-front{position:absolute;inset:0}
+.sol-corner{position:absolute;left:6%;top:3%;display:flex;align-items:center;gap:2px;line-height:1;font-weight:700}
+.sol-rank{font-size:var(--rk);letter-spacing:-.04em}
+.sol-rank::before,.sol-facecard::before{content:attr(data-r)}
+.sol-pip{width:var(--pip);height:var(--pip);fill:currentColor;flex:none}
+.sol-corner2{left:auto;top:auto;right:6%;bottom:3%;transform:rotate(180deg)}
+.sol-mid{position:absolute;left:0;right:0;top:28%;bottom:20%;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.sol-big{width:46%;height:46%;fill:currentColor}
+.sol-big.sol-small{width:30%;height:30%}
+.sol-facecard{font-size:calc(var(--cw)*.42);font-weight:700;line-height:1;font-family:var(--title,Georgia,serif)}
+/* friendly card back: cream lattice on green, with a cream border */
+.sol-back{position:absolute;inset:0;border-radius:inherit;display:none;border:calc(var(--cw)*.06) solid #fffaf0;box-sizing:border-box;
+  background:#2f6b5a repeating-linear-gradient(45deg,rgba(255,250,235,.28) 0 3px,transparent 3px 11px),
+             repeating-linear-gradient(-45deg,rgba(255,250,235,.28) 0 3px,transparent 3px 11px);background-color:#2f6b5a}
+.sol-card.down .sol-front{display:none}
+.sol-card.down .sol-back{display:block}
+.sol-card.down{cursor:default}
+.sol-stock .sol-card.down{cursor:pointer}
+.sol-card:focus-visible{outline:4px solid var(--focus);outline-offset:3px;box-shadow:0 0 0 7px #000,0 6px 14px rgba(0,0,0,.4)}
+
+/* states: never colour alone — raised + a thick outline shape */
+.sol-card.stacked{box-shadow:none}
+.sol-card.drag{transition:none;box-shadow:0 14px 28px rgba(0,0,0,.45);cursor:grabbing}
+.sol-card.picked{translate:0 calc(var(--cw)*-.12);outline:4px dashed #000;outline-offset:-6px;box-shadow:0 0 0 4px #fff,0 0 0 8px #000,0 12px 22px rgba(0,0,0,.45)}
+.sol-card.hint,.sol-pile.hint::before{outline:5px solid var(--focus);outline-offset:2px}
+.sol-card.hint{translate:0 calc(var(--cw)*-.08);box-shadow:0 0 0 9px rgba(0,0,0,.55),0 0 22px 8px rgba(255,213,79,.85)}
+.sol-pile.hint::before{opacity:1;border-color:var(--focus)}
+.sol-card.wiggle{animation:sol-wiggle .42s ease}
+@keyframes sol-wiggle{0%,100%{translate:0}20%{translate:-7px 0}40%{translate:6px 0}60%{translate:-4px 0}80%{translate:3px 0}}
+
+/* gentle on-table message (also announced for screen readers) */
+.sol-msg{position:absolute;left:50%;bottom:16px;transform:translate(-50%,8px);max-width:min(92%,560px);padding:12px 20px;border-radius:14px;
+  background:var(--paper,#fffaf0);color:var(--ink,#2b2118);font-size:20px;line-height:1.35;text-align:center;
+  box-shadow:0 6px 20px rgba(0,0,0,.4);opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;z-index:5000}
+.sol-msg.show{opacity:1;transform:translate(-50%,0)}
+
+/* first render, rotation, resume: no flying cards */
+.sol.instant .sol-card{transition:none}
+
+/* reduced motion: system setting or the app's own setting */
+@media (prefers-reduced-motion: reduce){ .sol-card,.sol-msg{transition:none!important;animation:none!important} }
+:root[data-motion=reduce] .sol-card,:root[data-motion=reduce] .sol-msg{transition:none!important;animation:none!important}
+
+/* high contrast: pure black/white, thick edges, no soft shadows or textures */
+:root[data-contrast=high] .sol{--focus:#ffd400;--table-line:#fff}
+:root[data-contrast=high] .sol-card{border:3px solid #000;box-shadow:none}
+:root[data-contrast=high] .sol-card.s0{color:#000}
+:root[data-contrast=high] .sol-card.s1,:root[data-contrast=high] .sol-card.s2{color:#b00000}
+:root[data-contrast=high] .c4 .sol-card.s2{color:#0033aa}
+:root[data-contrast=high] .c4 .sol-card.s3{color:#005a00}
+:root[data-contrast=high] .sol-back{background:#000 repeating-linear-gradient(45deg,#fff 0 3px,transparent 3px 12px);border-color:#fff}
+:root[data-contrast=high] .sol-pile::before,:root[data-contrast=high] .sol-mark{opacity:1}
+:root[data-contrast=high] .sol-card.hint{box-shadow:0 0 0 9px #000}
+:root[data-contrast=high] .sol-msg{background:#fff;color:#000;border:3px solid #000;box-shadow:none}
+@media (forced-colors: active){
+  .sol-card{border:2px solid CanvasText;forced-color-adjust:none;background:#fff}
+  .sol-pile:focus-visible,.sol-card:focus-visible{outline:4px solid Highlight}
+}

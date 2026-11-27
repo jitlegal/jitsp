@@ -13,9 +13,12 @@ const enc = new TextEncoder(), dec = new TextDecoder();
 const b64u = bytes => { let s = ''; for(let i=0;i<bytes.length;i+=0x8000) s += String.fromCharCode(...bytes.subarray(i,i+0x8000)); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); };
 const unb64u = s => Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0));
 
-async function pipe(bytes, stream){
-  const out = new Response(new Blob([bytes]).stream().pipeThrough(stream));
-  return new Uint8Array(await out.arrayBuffer());
+// Read the (de)compressed stream with a hard cap, so a tiny hostile link can't inflate into gigabytes.
+async function pipe(bytes, stream, cap = 8e6){
+  const rd = new Blob([bytes]).stream().pipeThrough(stream).getReader(), parts = []; let n = 0;
+  for(;;){ const { done, value } = await rd.read(); if(done) break; n += value.length;
+    if(n > cap){ rd.cancel().catch(()=>{}); throw new Error('too large'); } parts.push(value); }
+  return concat(parts);
 }
 // flag byte: 1 = deflated, 0 = raw (very old browsers without CompressionStream)
 async function pack(obj){
@@ -48,7 +51,7 @@ export function unpackState(code, n){
 }
 
 // ---------- images ----------
-const regenerable = r => r.src.t === 'scene';
+const regenerable = r => !!(r && r.src && r.src.t === 'scene');   // painted pictures repaint exactly from their seed
 const webpOK = (() => { try{ return document.createElement('canvas').toDataURL('image/webp').startsWith('data:image/webp'); }catch(_){ return false; } })();
 async function compact(blob){
   // re-encode as WebP when the browser can (usually 30-50% smaller than JPEG at the same look)
@@ -69,12 +72,14 @@ export async function exportBackup({ album, current, currentImage, streak, setti
   const m = { v:2, at: Date.now(), streak, settings, album: [] };
   for(const it of album){
     const e = { id: it.id, d: it.date, t: it.title, r: it.recipe, s: it.seconds };
-    if(!regenerable(it.recipe)) e.i = await add(it.full);
+    if(!regenerable(it.recipe) && it.full) e.i = await add(it.full);
     m.album.push(e);
   }
   if(current){
-    const n = Object.keys(current.state || {}).length;
-    m.cur = { r: current.recipe, s: current.seconds|0, n, p: packState(current.sv === 2 ? current.state || {} : {}, n) };
+    const st = current.state || {}, isJigsaw = (current.recipe?.g || 'jigsaw') === 'jigsaw';
+    m.cur = { r: current.recipe, s: current.seconds|0 };
+    if(isJigsaw && st.p){ const n = Object.keys(st.p).length; m.cur.n = n; m.cur.v = st.v === 2 ? 2 : 1; m.cur.p = packState(st.p, n); }
+    else m.cur.j = st;                                   // other games: small JSON state, deflated with the rest
     if(!regenerable(current.recipe) && currentImage) m.cur.i = await add(currentImage);
   }
   m.sizes = blobs.map(b => b.length);
@@ -105,7 +110,9 @@ export async function importBackup(input){
   for(const sz of m.sizes || []){ if(!blobArea || off+sz > blobArea.length) throw new Error('damaged'); blobs.push(new Blob([blobArea.subarray(off, off+sz)])); off += sz; }
   return {
     streak: m.streak, settings: m.settings,
-    album: (m.album||[]).map(e => ({ id: e.id, date: e.d, title: e.t, recipe: e.r, seconds: e.s, image: e.i!=null ? blobs[e.i] : null })),
-    current: m.cur ? { recipe: m.cur.r, seconds: m.cur.s, state: unpackState(m.cur.p, m.cur.n), image: m.cur.i!=null ? blobs[m.cur.i] : null } : null,
+    album: (Array.isArray(m.album) ? m.album : []).map(e => ({ id: e.id, date: e.d, title: e.t, recipe: e.r, seconds: e.s, image: Number.isInteger(e.i) ? blobs[e.i] || null : null })),
+    current: m.cur ? { recipe: m.cur.r, seconds: m.cur.s,
+      state: typeof m.cur.p === 'string' && Number.isInteger(m.cur.n) && m.cur.n > 0 && m.cur.n <= 1000 ? { v: m.cur.v === 2 ? 2 : 1, p: unpackState(m.cur.p, m.cur.n) } : (m.cur.j && typeof m.cur.j === 'object' ? m.cur.j : undefined),
+      image: Number.isInteger(m.cur.i) ? blobs[m.cur.i] || null : null } : null,
   };
 }
