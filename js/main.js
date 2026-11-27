@@ -493,6 +493,7 @@ $('#openSettings').onclick = () => {
     toggle('sounds', true, false, 'Click sounds when something fits'),
     h('div', { class:'switch' }, h('span', {}, 'Music'), h('button', { onclick: musicDialog }, 'Choose…')),
     h('div', { class:'switch' }, h('span', {}, 'Back up or move my games'), h('button', { onclick: backupDialog }, 'Open…')),
+    h('div', { class:'switch' }, h('span', {}, 'Ideas, problems or kind words'), h('button', { onclick: ideaDialog }, '💡 Share an idea')),
     isIOS && !installed() ? h('div', { class:'card keep-safe', style:'margin-top:14px' }, h('h3', {}, 'Keep everything safe'), h('p', {}, 'Safari may clear saved games after a week away. Add this app to your Home Screen to keep your games, scrapbook and songs: tap the Share button, then “Add to Home Screen”.')) : null,
     h('details', { style:'margin-top:16px' }, h('summary', { style:'font-weight:700;cursor:pointer;min-height:44px' }, 'Accessibility'),
       h('p', {}, 'Made to work with screen readers (VoiceOver, TalkBack, NVDA), a keyboard alone, browser zoom up to 400%, and the larger-text, high-contrast and less-movement choices above. Solitaire can be played fully by keyboard or screen reader. Jigsaw puzzles are a picture game, so they need sight, but every control has a spoken name and pieces can be moved with the arrow keys.')),
@@ -572,6 +573,44 @@ function checkBackupLink(){
       h('button', { class:'secondary', onclick: () => { closeDialog(); history.replaceState(null, '', location.pathname + location.search); } }, 'No thanks')));
   return true;
 }
+
+// ---------------- share an idea (Netlify Forms; nothing else leaves the device) ----------------
+function ideaDialog(){
+  const draft = LS.get('jig.ideaDraft', {}), kinds = [['idea','💡 An idea'],['problem','🐞 Something isn’t working'],['kind','💛 Kind words']];
+  let kind = draft.kind || 'idea';
+  const msg = h('textarea', { maxLength: 2000, placeholder:'Tell us in your own words. On a phone or tablet you can tap the microphone on the keyboard and just speak.', value: draft.message || '' });
+  const name = h('input', { type:'text', maxLength: 60, autocomplete:'name', value: draft.name ?? settings.get().name ?? '' });
+  const contact = h('input', { type:'text', maxLength: 120, placeholder:'Email or phone — only if you’d like a reply', value: draft.contact || '' });
+  const ctx = h('input', { type:'checkbox', checked: draft.ctx !== false });
+  const save = () => LS.set('jig.ideaDraft', { kind, message: msg.value, name: name.value, contact: contact.value, ctx: ctx.checked });
+  for(const el of [msg, name, contact, ctx]) el.addEventListener('input', save);
+  const kindBtns = kinds.map(([v, label]) => h('button', { 'aria-pressed': String(kind === v), onclick: e => { kind = v; save();
+    for(const b of e.currentTarget.parentNode.children) b.setAttribute('aria-pressed', String(b === e.currentTarget)); } }, label));
+  const send = h('button', { class:'primary', style:'width:100%;margin-top:14px', onclick: async () => {
+    if(!msg.value.trim()){ announce('Please write a few words first.'); toast('Please write a few words first.'); msg.focus(); return; }
+    send.disabled = true; send.textContent = 'Sending…';
+    const context = ctx.checked ? `${active ? active.game.name + ' · ' + active.game.describe(active.recipe) : 'Home'} · ${innerWidth}×${innerHeight} · ${navigator.language}` : '';
+    try{
+      const r = await fetch('/', { method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ 'form-name':'ideas', 'bot-field':'', kind, message: msg.value.trim().slice(0, 2000), name: name.value.trim().slice(0, 60), contact: contact.value.trim().slice(0, 120), context }).toString() });
+      if(!r.ok) throw new Error(r.status);
+      LS.del('jig.ideaDraft');
+      dialog(h('h2', {}, 'Thank you! 💛'), h('p', { class:'big' }, 'Your message is on its way. Ideas like yours make this better for everyone.'),
+        h('button', { class:'primary', style:'width:100%', autofocus:true, onclick: closeDialog }, 'Lovely'));
+    }catch(_){
+      send.disabled = false; send.textContent = 'Try sending again';
+      toast('It couldn’t be sent just now — your message is saved here, so you can try again later.', 7000);
+    }
+  } }, 'Send');
+  dialog(h('h2', {}, 'Share an idea'), h('p', { class:'muted' }, 'Ideas, problems or kind words — we read every one. You don’t need to give your name.'),
+    h('div', { class:'stack', role:'group', 'aria-label':'What is it about?' }, kindBtns),
+    h('label', { class:'field' }, 'Your message', msg),
+    h('label', { class:'field' }, 'Your name (optional)', name),
+    h('label', { class:'field' }, 'How can we reply? (optional)', contact),
+    h('label', { class:'check' }, ctx, h('span', {}, 'Include which game I’m on and my screen size (helps us fix problems). Nothing else is sent.')),
+    send);
+}
+$('#ideaLink').onclick = ideaDialog;
 
 // ---------------- keeping saved data safe ----------------
 // Safari can clear a website's storage after ~7 days unused unless it's on the Home Screen.

@@ -205,3 +205,10 @@ h2.section{margin:24px 2px 12px;font-size:clamp(21px,5.6vw,26px)}
 .keep-safe h2{font:600 clamp(20px,5.2vw,24px)/1.2 var(--title);margin:0 0 6px}
 .keep-safe p{margin:0 0 10px}
 .keep-safe button{width:100%}
+
+/* share an idea */
+textarea{width:100%;min-height:150px;font:inherit;font-size:20px;padding:12px 14px;border-radius:12px;border:2px solid var(--line);background:#fff;resize:vertical}
+textarea:focus-visible{outline:4px solid var(--gold);outline-offset:2px}
+.linkish{background:none;color:var(--cream);text-decoration:underline;font-size:18px;min-height:48px;padding:8px 12px}
+.check{display:flex;gap:12px;align-items:flex-start;margin-top:12px;font-size:18px}
+.check input{width:28px;height:28px;flex:none;margin-top:2px}
