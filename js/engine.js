@@ -215,7 +215,12 @@ export class Puzzle {
     const b = this.board, w = this.world;
     let s, cx, cy;
     if(!this.zoomable){ s = this._fitWorldScale(); cx = w.x + w.w/2; cy = w.y + w.h/2; }
-    else { s = Math.min(this.SW*0.62/b.w, this.SH*0.62/b.h); cx = b.x + b.w/2; cy = b.y + b.h/2; }
+    else {                                 // big puzzles: open close enough that pieces are comfortably large (≥ ~48 px)
+      const fitBoard = Math.min(this.SW*0.62/b.w, this.SH*0.62/b.h), comfy = 48/Math.min(b.cw, b.ch);
+      s = Math.max(fitBoard, comfy);
+      if(s > fitBoard){ cx = b.x + Math.min(b.w/2, this.SW/s*0.45); cy = b.y + Math.min(b.h/2, this.SH/s*0.45); }   // start at the top-left corner, edge pieces in view
+      else { cx = b.x + b.w/2; cy = b.y + b.h/2; }
+    }
     this._camTo(s, cx, cy, animate ? 350 : 0);
   }
   zoomBy(f, sx = this.SW/2, sy = this.SH/2){
