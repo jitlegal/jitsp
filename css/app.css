@@ -238,3 +238,8 @@ body.playing .toast{top:calc(var(--bar-h,68px) + 8px);bottom:auto}
 @media (max-width:400px){ .qrbox{flex-direction:column;text-align:center} }
 /* first-time tip: a slim strip under the toolbar, never over the board */
 .tip{left:8px;right:8px;transform:none;max-width:none;padding:8px 14px;font-size:17px;border-radius:12px;box-shadow:0 3px 10px rgba(0,0,0,.3)}
+/* option choices: the selected one is unmistakable (colour + tick + weight, never colour alone) */
+.opt-group button{border:2px solid var(--line);font-weight:400}
+.opt-group button[aria-pressed=true]{background:var(--ok);color:#fff;border-color:var(--ok);font-weight:700}
+.opt-group button[aria-pressed=true]::before{content:"✓ ";font-weight:700}
+:root[data-contrast=high] .opt-group button[aria-pressed=true]{background:#000;color:#fff;border-color:#000}
