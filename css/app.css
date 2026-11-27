@@ -130,3 +130,16 @@ h2.section:focus{outline:none}
 .opt-group h3{margin:0 0 6px;font:600 21px var(--title)}
 /* light table: dark pieces stand out (Settings → Light table) */
 :root[data-table=light] #play{background:#e7e0cf}
+/* home polish: clearer hierarchy, roomier tiles, gentle depth */
+#home{max-width:880px}
+.top h1{letter-spacing:-.01em}
+.continue{border:3px solid var(--gold);background:linear-gradient(180deg,#fffaf0,#f6ead0)}
+.today{padding:22px;background:linear-gradient(160deg,#fffaf0 0%,#f3e6c8 100%)}
+.today h2{font-size:clamp(30px,4.5vw,40px)}
+h2.section{display:flex;align-items:center;gap:10px}
+h2.section::after{content:"";flex:1;height:2px;background:rgba(251,244,230,.22);border-radius:2px}
+@media (min-width:700px){.tiles{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.tile{min-height:112px;transition:transform .15s ease,box-shadow .15s ease;border:2px solid transparent}
+.tile:hover{transform:translateY(-2px);box-shadow:0 10px 22px rgba(0,0,0,.28)}
+.tile:focus-visible{border-color:var(--gold)}
+:root[data-motion=reduce] .tile:hover{transform:none}
