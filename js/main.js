@@ -329,8 +329,8 @@ function guardNew(go){
 }
 $('#todayBtn').onclick = () => guardNew(() => startGame(today$()));
 // Daily games: the date (and the game) pick the seed, so everyone gets the same game today.
-const DAILY = ['solitaire', 'sudoku'];
-const DAILY_OPTS = { solitaire: { draw: 1 }, sudoku: { level: 'easy' } };
+const DAILY = ['solitaire', 'words', 'sudoku'];
+const DAILY_OPTS = { solitaire: { draw: 1 }, sudoku: { level: 'easy' }, words: { size: 10, theme: 'any' } };
 function startDaily(g){
   const seed = ([...(today() + g.id)].reduce((a,c) => Math.imul(a ^ c.charCodeAt(0), 16777619), 2166136261)) >>> 1;
   const opts = { ...Object.fromEntries((g.options||[]).map(o => [o.key, o.default])), ...(settings.get()['opts_' + g.id] || {}), ...(DAILY_OPTS[g.id] || {}) };

@@ -1,0 +1,77 @@
+/* Sudoku — big, calm, high-contrast. Sizes come from JS: --cell (square), --btn (pad key). */
+.sdk{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:14px;padding:10px;box-sizing:border-box;
+  font-family:var(--font,'Atkinson Hyperlegible',system-ui,sans-serif);--ink:#1b1b1b;--user:#1558b0;--bad:#b3261e;--sel:#ffe08a;--peer:#f6edd6;--same:#cfe0ff;
+  --line:#a89f8c;--box:#2b2118;--paper:#fff;--focus:#1558b0;user-select:none;-webkit-user-select:none;
+  --ts:var(--card-scale,1)}
+.sdk.portrait{flex-direction:column}
+.sdk.landscape{flex-direction:row}
+.sdk-sr{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+
+/* the grid: thin lines between squares, thick lines around the 3×3 boxes */
+.sdk-grid{display:grid;grid-template-rows:repeat(9,var(--cell));background:var(--paper);border:4px solid var(--box);border-radius:10px;
+  box-shadow:0 8px 24px rgba(0,0,0,.35);overflow:hidden;flex:none;touch-action:manipulation}
+.sdk-row{display:grid;grid-template-columns:repeat(9,var(--cell))}
+.sdk-cell{position:relative;box-sizing:border-box;border-right:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--paper);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;outline:none;transition:background-color .15s}
+.sdk-cell.c2,.sdk-cell.c5{border-right:3px solid var(--box)}
+.sdk-cell.c8{border-right:0}
+.sdk-cell.r2,.sdk-cell.r5{border-bottom:3px solid var(--box)}
+.sdk-cell.r8{border-bottom:0}
+.sdk-v{font-size:min(calc(var(--cell) * .64 * var(--ts)), calc(var(--cell) * .84));line-height:1;font-weight:400;color:var(--user)}
+.sdk-cell.given .sdk-v{font-weight:700;color:var(--ink)}
+/* mistakes: colour AND a dashed underline (never colour alone) */
+.sdk-cell.wrong .sdk-v{color:var(--bad);text-decoration:underline dashed;text-decoration-thickness:max(2px,calc(var(--cell)*.05));text-underline-offset:max(2px,calc(var(--cell)*.06))}
+.sdk-cell.peer{background:var(--peer)}
+.sdk-cell.same{background:var(--same)}
+.sdk-cell.sel{background:var(--sel)}
+.sdk-cell.sel::after{content:"";position:absolute;inset:2px;border:3px solid var(--box);border-radius:4px;pointer-events:none}
+.sdk-cell:focus-visible::after{content:"";position:absolute;inset:1px;border:4px solid var(--focus);border-radius:4px;box-shadow:0 0 0 2px #fff inset;pointer-events:none}
+/* pencil notes: a little 3×3 of small numbers */
+.sdk-notes{position:absolute;inset:6%;display:none;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);align-items:center;justify-items:center;
+  font-size:min(calc(var(--cell) * .27 * var(--ts)), calc(var(--cell) * .32));color:#3d3529;line-height:1;font-weight:700}
+.sdk-cell.has-notes .sdk-notes{display:grid}
+.sdk-n{visibility:hidden}
+.sdk-n.on{visibility:visible}
+/* celebrations */
+.sdk-cell.glow{animation:sdk-glow 1.6s ease}
+@keyframes sdk-glow{0%{background:#ffd54f;box-shadow:inset 0 0 0 4px #e0a11b}100%{}}
+.sdk-cell.wave{animation:sdk-wave 1.1s ease}
+@keyframes sdk-wave{0%{background:var(--paper)}35%{background:#d8f0d2}100%{}}
+.sdk.solved .sdk-cell{animation:sdk-wave 1.4s ease both}
+.sdk.solved .sdk-grid{box-shadow:0 0 0 6px #ffd54f,0 8px 24px rgba(0,0,0,.35)}
+
+/* number pad */
+.sdk-pad{display:grid;gap:6px;flex:none}
+.sdk.portrait .sdk-pad{grid-template-columns:repeat(6,var(--btn))}
+.sdk.landscape .sdk-pad{grid-template-columns:repeat(3,var(--btn));gap:8px}
+.sdk-key{min-height:var(--btn);min-width:44px;border-radius:14px;border:0;background:#fffaf0;color:var(--ink);box-shadow:0 3px 0 #d9c7a3;cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;padding:2px;font:inherit;line-height:1}
+.sdk-key:active{transform:translateY(2px);box-shadow:0 1px 0 #d9c7a3}
+.sdk-key:focus-visible{outline:4px solid #ffd54f;outline-offset:2px}
+.sdk-key-d{font-size:min(calc(var(--btn) * .5 * var(--ts)), calc(var(--btn) * .62));font-weight:700}
+.sdk-key-left{font-size:max(13px,calc(var(--btn) * .19));color:#5a4a3a;margin-top:2px}
+.sdk-key.done{background:#e5e0d3}
+.sdk-key.done .sdk-key-left{color:#1b6e2a;font-weight:700}
+.sdk-key:disabled{cursor:default;opacity:1}
+.sdk-key-ico{font-size:calc(var(--btn) * .36)}
+.sdk-key-txt{font-size:max(14px,calc(var(--btn) * .21));font-weight:700;margin-top:3px}
+.sdk-notes-btn{grid-column:span 2;flex-direction:row;gap:8px}
+.sdk-notes-btn .sdk-key-txt{margin-top:0}
+.sdk-notes-btn[aria-pressed=true]{background:#2e7d32;color:#fff;box-shadow:0 3px 0 #1b5e20}
+.sdk.notes-mode .sdk-cell.sel::after{border-style:dashed}
+.sdk-msg{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:#2b2118;color:#fffaf0;padding:10px 16px;border-radius:12px;font-size:18px;
+  opacity:0;transition:opacity .2s;pointer-events:none}
+.sdk-msg.show{opacity:1}
+
+/* settings from the shell */
+:root[data-motion=reduce] .sdk *{animation:none!important;transition:none!important}
+:root[data-contrast=high] .sdk{--line:#000;--box:#000;--peer:#fff;--same:#fff;--sel:#ffd400;--user:#0033aa;--ink:#000}
+:root[data-contrast=high] .sdk-cell.same{box-shadow:inset 0 0 0 3px #000}
+:root[data-contrast=high] .sdk-key{border:3px solid #000;box-shadow:none;background:#fff}
+:root[data-contrast=high] .sdk-grid{border-width:5px}
+@media (forced-colors: active){
+  .sdk-cell.sel::after,.sdk-cell:focus-visible::after{border-color:Highlight}
+  .sdk-cell.wrong .sdk-v{text-decoration-color:CanvasText}
+  .sdk-key{border:2px solid ButtonText}
+  .sdk-notes-btn[aria-pressed=true]{outline:3px solid Highlight}
+}

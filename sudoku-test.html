@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sudoku test harness</title>
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/sudoku.css">
+<style>
+  /* developer test page only (never part of the app) */
+  html,body{height:100%;margin:0;background:#24463c}
+  #stage{position:fixed;inset:0;top:0}
+</style>
+</head>
+<body>
+<main id="stage" aria-label="Sudoku test"></main>
+<div id="announce" class="sr-only" aria-live="polite"></div>
+<script type="module">
+  import sudoku from './js/games/sudoku.js';
+  const q = new URLSearchParams(location.search);
+  const T = window.T = { said: [], completed: 0, placed: 0, changes: 0, progress: null, game: sudoku };
+  const hooks = {
+    announce: t => { T.said.push(t); document.getElementById('announce').textContent = t; },
+    onProgress: (d, t) => { T.progress = [d, t]; },
+    onChange: () => { T.changes++; },
+    onComplete: () => { T.completed++; },
+    onPlace: last => { T.placed++; },
+    onTouch: () => {},
+  };
+  const recipe = sudoku.newRecipe(+(q.get('s') || 20261127), { level: q.get('l') || 'gentle', mistakes: q.get('m') === '0' ? 0 : 1 });
+  T.recipe = recipe;
+  T.inst = sudoku.create(document.getElementById('stage'), hooks);
+  await T.inst.load(recipe, {});
+  addEventListener('resize', () => T.inst.resize());
+  T.ready = true;
+</script>
+</body>
+</html>
