@@ -128,3 +128,5 @@ h2.section:focus{outline:none}
 .seg button[aria-pressed=true]{background:var(--ok);color:#fff}
 .opt-group{margin-top:14px}
 .opt-group h3{margin:0 0 6px;font:600 21px var(--title)}
+/* light table: dark pieces stand out (Settings → Light table) */
+:root[data-table=light] #play{background:#e7e0cf}

@@ -74,6 +74,7 @@ function applyLook(){
   d.style.setProperty('--ui-zoom', s.textScale || 1);
   d.style.setProperty('--card-scale', s.textScale || 1);
   if(s.contrast === 'high') d.dataset.contrast = 'high'; else delete d.dataset.contrast;
+  if(s.table === 'light') d.dataset.table = 'light'; else delete d.dataset.table;
   if(s.motion === 'reduce' || matchMedia('(prefers-reduced-motion: reduce)').matches) d.dataset.motion = 'reduce'; else delete d.dataset.motion;
 }
 
@@ -469,6 +470,7 @@ $('#openSettings').onclick = () => {
     h('div', { class:'opt-group', role:'group', 'aria-label':'Text and button size' }, h('h3', {}, 'Text and button size'), h('div', { class:'seg' }, sizeBtns)),
     toggle('contrast', 'high', 'normal', 'High contrast', 'Black and white, with thick outlines'),
     toggle('motion', 'reduce', 'normal', 'Less movement', 'Pieces and cards jump instead of gliding'),
+    toggle('table', 'light', 'dark', 'Light table', 'A pale table makes dark puzzle pieces easier to see'),
     toggle('sounds', true, false, 'Click sounds when something fits'),
     h('div', { class:'switch' }, h('span', {}, 'Music'), h('button', { onclick: musicDialog }, 'Choose…')),
     h('div', { class:'switch' }, h('span', {}, 'Back up or move my games'), h('button', { onclick: backupDialog }, 'Open…')),
