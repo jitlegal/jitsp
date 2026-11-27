@@ -67,7 +67,7 @@ async function compact(blob){
  * Build a backup. Returns {bytes, code|null, summary}.
  * data: {album:[...], current:{recipe,state,seconds}|null, currentImage:Blob|null, streak, settings}
  */
-export async function exportBackup({ album, current, currentImage, streak, settings, playlists }){
+export async function exportBackup({ album, currents = [], streak, settings, playlists }){
   const blobs = [], add = async b => { const u = await compact(b); blobs.push(u); return blobs.length-1; };
   const m = { v:2, at: Date.now(), streak, settings, album: [], ...(playlists ? { pl: playlists } : {}) };
   for(const it of album){
@@ -75,19 +75,21 @@ export async function exportBackup({ album, current, currentImage, streak, setti
     if(!regenerable(it.recipe) && it.full) e.i = await add(it.full);
     m.album.push(e);
   }
-  if(current){
+  const packCurrent = async current => {
     const st = current.state || {}, isJigsaw = (current.recipe?.g || 'jigsaw') === 'jigsaw';
-    m.cur = { r: current.recipe, s: current.seconds|0 };
-    if(isJigsaw && st.p){ const n = Object.keys(st.p).length; m.cur.n = n; m.cur.v = st.v === 2 ? 2 : 1; m.cur.p = packState(st.p, n); }
-    else m.cur.j = st;                                   // other games: small JSON state, deflated with the rest
-    if(!regenerable(current.recipe) && currentImage) m.cur.i = await add(currentImage);
-  }
+    const c = { r: current.recipe, s: current.seconds|0 };
+    if(isJigsaw && st.p){ const n = Object.keys(st.p).length; c.n = n; c.v = st.v === 2 ? 2 : 1; c.p = packState(st.p, n); }
+    else c.j = st;                                       // other games: small JSON state, deflated with the rest
+    if(!regenerable(current.recipe) && current.image) c.i = await add(current.image);
+    return c;
+  };
+  if(currents.length){ m.curs = []; for(const cur of currents) m.curs.push(await packCurrent(cur)); }
   m.sizes = blobs.map(b => b.length);
   const head = await pack(m);
   const len = new Uint8Array(4); new DataView(len.buffer).setUint32(0, head.length);
   const bytes = concat([enc.encode(MAGIC), len, head, ...blobs]);
   return { bytes, code: blobs.length ? null : `${MAGIC}.${b64u(head)}`,
-    summary: { finished: m.album.length, inProgress: !!m.cur, photos: blobs.length, size: bytes.length } };
+    summary: { finished: m.album.length, inProgress: (m.curs || []).length, photos: blobs.length, size: bytes.length } };
 }
 
 /** Read a backup from file bytes or a pasted save code. Returns {album:[...], current, streak, settings}. */
@@ -111,8 +113,8 @@ export async function importBackup(input){
   return {
     streak: m.streak, settings: m.settings, playlists: m.pl && typeof m.pl === 'object' ? m.pl : null,
     album: (Array.isArray(m.album) ? m.album : []).map(e => ({ id: e.id, date: e.d, title: e.t, recipe: e.r, seconds: e.s, image: Number.isInteger(e.i) ? blobs[e.i] || null : null })),
-    current: m.cur ? { recipe: m.cur.r, seconds: m.cur.s,
-      state: typeof m.cur.p === 'string' && Number.isInteger(m.cur.n) && m.cur.n > 0 && m.cur.n <= 1000 ? { v: m.cur.v === 2 ? 2 : 1, p: unpackState(m.cur.p, m.cur.n) } : (m.cur.j && typeof m.cur.j === 'object' ? m.cur.j : undefined),
-      image: Number.isInteger(m.cur.i) ? blobs[m.cur.i] || null : null } : null,
+    currents: (Array.isArray(m.curs) ? m.curs : m.cur ? [m.cur] : []).slice(0, 12).filter(c => c && typeof c === 'object').map(c => ({ recipe: c.r, seconds: c.s,
+      state: typeof c.p === 'string' && Number.isInteger(c.n) && c.n > 0 && c.n <= 1000 ? { v: c.v === 2 ? 2 : 1, p: unpackState(c.p, c.n) } : (c.j && typeof c.j === 'object' ? c.j : undefined),
+      image: Number.isInteger(c.i) ? blobs[c.i] || null : null })),
   };
 }

@@ -40,19 +40,20 @@ h2.section{color:var(--cream);font:600 24px var(--title);margin:26px 4px 12px}
 
 /* ---------- play ---------- */
 #play{position:fixed;inset:0}
-.bar{position:absolute;left:0;right:0;top:0;height:calc(68px + var(--safe-t));padding:calc(8px + var(--safe-t)) 8px 8px;display:flex;gap:8px;align-items:center;background:var(--felt2);overflow-x:auto;z-index:3}
+.bar{position:absolute;left:0;right:0;top:0;min-height:calc(68px + var(--safe-t));flex-wrap:wrap;row-gap:6px;padding:calc(8px + var(--safe-t)) 8px 8px;display:flex;gap:8px;align-items:center;background:var(--felt2);overflow-x:auto;z-index:3}
 .bar button{white-space:nowrap;flex:none}
 .bar .gold{background:var(--gold)}
 .bar button[aria-pressed=true],.bar button.on{background:var(--ok);color:#fff}
 #count{margin-left:auto;color:var(--cream);font-size:20px;white-space:nowrap;padding:0 6px;flex:none}
 @media (max-width:820px){.bar{flex-wrap:wrap;height:auto;row-gap:6px}}
-#stage{position:absolute;left:0;right:0;top:calc(68px + var(--safe-t));bottom:0;overflow:hidden}
+#stage{position:absolute;left:0;right:0;top:var(--bar-h,calc(68px + var(--safe-t)));bottom:0;overflow:hidden}
 .stage-canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
 .stage-canvas:focus-visible{outline:4px solid var(--gold);outline-offset:-4px}
 #thumbBtn{position:absolute;right:12px;bottom:calc(12px + var(--safe-b));padding:0;min-height:0;width:min(20vw,170px);border:4px solid var(--paper);border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,.5);z-index:2;overflow:hidden;background:var(--paper)}
 #thumb{display:block;width:100%}
-.tip{position:absolute;left:50%;bottom:calc(16px + var(--safe-b));transform:translateX(-50%);background:var(--paper);padding:12px 20px;border-radius:14px;font-size:20px;z-index:2;box-shadow:0 4px 14px rgba(0,0,0,.4);text-align:center;max-width:min(90vw,520px);pointer-events:none}
-@media (max-width:720px){ .lbl{display:none} .bar button{padding:8px 14px;font-size:22px} #count{font-size:17px} #thumbBtn{width:24vw} }
+.tip{position:absolute;left:50%;top:calc(var(--bar-h,68px) + 8px);transform:translateX(-50%);background:var(--paper);padding:12px 20px;border-radius:14px;font-size:20px;z-index:2;box-shadow:0 4px 14px rgba(0,0,0,.4);text-align:center;max-width:min(90vw,520px);pointer-events:none}
+@media (max-width:720px){ .bar button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;padding:4px 10px;font-size:22px;line-height:1.1;min-width:56px}
+  .bar .lbl{display:block;font-size:14px;font-weight:700} #count{font-size:17px} #thumbBtn{width:24vw} }
 
 /* ---------- dialogs ---------- */
 .overlay{position:fixed;inset:0;background:rgba(10,20,16,.62);display:flex;align-items:center;justify-content:center;z-index:20;padding:12px}
@@ -120,7 +121,8 @@ h2.section:focus{outline:none}
 :root[data-contrast=high] .round{background:#fff;color:#000}
 :root[data-contrast=high] button:focus-visible,:root[data-contrast=high] input:focus-visible{outline:5px solid #ffd400;outline-offset:3px}
 :root[data-contrast=high] .muted{color:#222}
-:root[data-contrast=high] #home .muted,:root[data-contrast=high] .foot{color:#fff}
+:root[data-contrast=high] #home>.muted,:root[data-contrast=high] .foot{color:#fff}
+:root[data-contrast=high] .card .muted,:root[data-contrast=high] .sheet .muted{color:#000}
 /* reduced motion as an in-app choice too */
 :root[data-motion=reduce] *{transition:none!important;animation:none!important;scroll-behavior:auto!important}
 .seg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px}
@@ -188,7 +190,7 @@ h2.section{margin:24px 2px 12px;font-size:clamp(21px,5.6vw,26px)}
 .deal .primary{grid-column:1/-1;width:100%}
 @media (min-width:560px){ .deal{grid-template-columns:auto minmax(0,1fr) auto} .deal .primary{grid-column:auto;width:auto;white-space:nowrap} }
 /* keep the whole toolbar on screen when big-puzzle buttons appear (spoken names stay) */
-@media (max-width:1180px){ #peekBtn .lbl,#tidyBtn .lbl,#edgesBtn .lbl,#seeAll .lbl,#undoBtn .lbl{display:none} }
+
 
 /* today's games: one row per daily game */
 .daily{padding:16px}
@@ -212,3 +214,27 @@ textarea:focus-visible{outline:4px solid var(--gold);outline-offset:2px}
 .linkish{background:none;color:var(--cream);text-decoration:underline;font-size:18px;min-height:48px;padding:8px 12px}
 .check{display:flex;gap:12px;align-items:flex-start;margin-top:12px;font-size:18px}
 .check input{width:28px;height:28px;flex:none;margin-top:2px}
+
+/* keep going: one row per saved game */
+.continue-list{padding:16px}
+.continue-list h2{font:600 clamp(22px,5.6vw,28px)/1.15 var(--title);margin:0 0 4px}
+.continue-row{display:grid;grid-template-columns:72px minmax(0,1fr);gap:8px 12px;align-items:center;padding:12px 0;border-top:2px solid var(--line)}
+.continue-row .continue-pic{width:72px;height:56px;font-size:38px}
+.continue-row .big{margin:0;font-size:19px}
+.continue-row .primary{grid-column:1/-1;width:100%}
+@media (min-width:560px){ .continue-row{grid-template-columns:96px minmax(0,1fr) auto} .continue-row .continue-pic{width:96px;height:72px} .continue-row .primary{grid-column:auto;width:auto;white-space:nowrap} }
+/* dialogs: long option lists as compact chips, Start always reachable */
+.opt-chips{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.opt-chips button{min-height:56px;font-size:18px;padding:8px 10px}
+.sticky-go{position:sticky;bottom:-22px;margin:16px -22px -22px;padding:12px 22px 22px;background:var(--cream);box-shadow:0 -6px 12px rgba(0,0,0,.08)}
+.sticky-go .primary{width:100%}
+/* music panel: compact station chips */
+.stations.chips{grid-template-columns:repeat(2,minmax(0,1fr))}
+.stations.chips button{padding:10px 12px}
+.stations.chips small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* while playing: no skip link; toasts sit under the toolbar instead of over controls */
+body.playing .skip{display:none}
+body.playing .toast{top:calc(var(--bar-h,68px) + 8px);bottom:auto}
+@media (max-width:400px){ .qrbox{flex-direction:column;text-align:center} }
+/* first-time tip: a slim strip under the toolbar, never over the board */
+.tip{left:8px;right:8px;transform:none;max-width:none;padding:8px 14px;font-size:17px;border-radius:12px;box-shadow:0 3px 10px rgba(0,0,0,.3)}

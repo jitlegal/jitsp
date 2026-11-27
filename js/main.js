@@ -33,6 +33,7 @@ const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 // ---------------- screens, dialogs, toasts, announcements ----------------
 function show(id){
   for(const s of document.querySelectorAll('.screen')) s.classList.toggle('hidden', s.id !== id);
+  document.body.classList.toggle('playing', id === 'play');
   if(id === 'play' && !history.state?.play) history.pushState({play:1}, '');
   if(id === 'home') refreshHome();
 }
@@ -45,7 +46,8 @@ function dialog(...nodes){
   b.replaceChildren(...nodes.flat(Infinity).filter(n => n != null && n !== false));
   const t = b.querySelector('h2'); if(t) t.id = 'dlgTitle';
   $('#dlg').classList.remove('hidden');
-  (b.querySelector('[autofocus]') || $('#dlg .sheet')).focus();
+  (b.querySelector('[autofocus]') || $('#dlg .sheet')).focus({ preventScroll: true });
+  $('#dlg .sheet').scrollTop = 0;                        // always open at the top, title first
 }
 function closeDialog(){
   $('#dlg').classList.add('hidden'); const f = onDlgClose; onDlgClose = null; f && f();
@@ -114,9 +116,17 @@ const MOODS = { seaside:'bubbly', balloons:'bubbly', tulips:'bubbly', birds:'bub
 const moodFor = r => r.g === 'solitaire' ? 'parlor' : r.src?.t === 'scene' ? (MOODS[r.src.id] || 'warm') : 'warm';
 
 // ---------------- running a game ----------------
+function paintEdges(){ const n = active?.inst.edgesLeft; if(n == null) return;
+  $('#edgesBtn .lbl').textContent = ` Edges · ${n}`; $('#edgesBtn').setAttribute('aria-label', `Show only edge pieces, ${n} left`); }
+const KEYS = {
+  jigsaw: 'Arrow keys pick and move a piece, Enter drops it, N for the next piece, H for help.',
+  solitaire: 'Arrow keys move between piles, Enter plays a card, D deals, H for a hint, U to undo.',
+  sudoku: 'Arrow keys move, type 1 to 9 to fill a square, N for notes, H for help, U to undo.',
+  words: 'Arrow keys move, Enter marks the first and then the last letter of a word, H for help.',
+};
 let active = null, thumbURL = null, starting = false;
 const hooks = {
-  onProgress: (n, t) => { if(active) $('#count').textContent = active.game.progressLabel(n, t); },
+  onProgress: (n, t) => { if(active){ $('#count').textContent = active.game.progressLabel(n, t); paintEdges(); } },
   onPlace: last => { chime(last); navigator.vibrate?.(25); hideTip(); },
   onChange: () => active && saveProgress(),
   onComplete: () => finished(),
@@ -126,7 +136,7 @@ const hooks = {
   avoidRect: () => { const t = $('#thumbBtn').getBoundingClientRect(), c = $('#stage').getBoundingClientRect();
     return t.width ? { x:t.left-c.left-10, y:t.top-c.top-10, w:t.width+20, h:t.height+20 } : null; },
 };
-function saveProgress(){ if(!active) return; current.saveState(active.inst.state(), active.seconds, active.inst.progress()); }
+function saveProgress(){ if(!active) return; current.saveState(active.game.id, active.inst.state(), active.seconds, active.inst.progress()); }
 
 /** Start (or resume) any game from its recipe. source: a ready picture; embed: a photo from a link. */
 async function startGame(recipe, { source, embed, resume, daily } = {}){
@@ -162,13 +172,15 @@ async function startGame(recipe, { source, embed, resume, daily } = {}){
     // toolbar: only the buttons this game supports
     $('#undoBtn').classList.toggle('hidden', !inst.undo);
     $('#tidyBtn').classList.toggle('hidden', !inst.tidy);
-    $('#edgesBtn').classList.toggle('hidden', !(inst.setFilter && inst.edgesUseful)); $('#edgesBtn').setAttribute('aria-pressed', 'false');
+    $('#edgesBtn').classList.toggle('hidden', !(inst.setFilter && inst.edgesUseful)); $('#edgesBtn').setAttribute('aria-pressed', 'false'); paintEdges();
     $('#peekBtn').classList.toggle('hidden', !inst.setPeek); $('#peekBtn').setAttribute('aria-pressed', 'false');
     hooks.onZoomable(game.usesPicture && recipe.n >= 49);
     const p = inst.progress(); hooks.onProgress(p.done, p.total);
     if(!resume) await current.save({ recipe, state: inst.state(), seconds: 0, progress: p, image: blob, daily: active.daily });
     $('#toast').classList.add('hidden');
-    announce(`${active.title}. ${game.describe(recipe)}. ${game.tip || ''}`);
+    const focusable = $('#stage').querySelector('[tabindex="0"], canvas, button, [role=grid]');
+    focusable?.focus({ preventScroll: true });
+    announce(`${active.title}. ${game.describe(recipe)}. ${KEYS[game.id] || game.tip || ''}`);
     if(!resume && !LS.get('jig.tipSeen.' + game.id) && game.tip) showTip(game.tip, game.id);
     if(location.hash.startsWith('#p=')) history.replaceState(history.state, '', location.pathname + location.search);
     music.setContext?.({ seed: recipe.k ?? recipe.s ?? 0, mood: moodFor(recipe), title: active.title });
@@ -186,6 +198,11 @@ setInterval(() => {
 }, 1000);
 
 // ---------------- play bar ----------------
+// The game area always starts right below the toolbar, however tall it wraps (phones, larger text).
+new ResizeObserver(() => { const hgt = Math.ceil($('.bar').getBoundingClientRect().height);
+  if(!hgt) return; document.documentElement.style.setProperty('--bar-h', hgt + 'px');
+  if(active && !$('#play').classList.contains('hidden')) active.inst.resize(); }).observe($('.bar'));
+$('#stage').addEventListener('pointerdown', () => hideTip(), true);    // the first tap anywhere in a game dismisses the tip
 $('#homeBtn').onclick = () => { if(history.state?.play) history.back(); else show('home'); };
 $('#peekBtn').onclick = () => { const i = active?.inst; if(!i?.setPeek) return; const on = !i.peek; i.setPeek(on); $('#peekBtn').setAttribute('aria-pressed', String(on)); announce(on ? 'Showing the picture faintly on the board.' : 'Picture hidden.'); };
 $('#thumbBtn').onclick = () => $('#peekBtn').click();
@@ -205,7 +222,7 @@ async function finished(){
   const g = active; if(!g || g.finished) return; g.finished = true;
   const name = settings.get().name, isDaily = g.game.id === 'jigsaw' && (g.recipe.d === today() || g.recipe.d === dayBefore(today()));
   const st = isDaily ? streak.complete(g.recipe.d) : g.daily && (g.daily === today() || g.daily === dayBefore(today())) ? gameStreak(g.game.id).complete(g.daily) : null;
-  current.clear();
+  current.clear(g.game.id);
   const pic = g.img || g.inst.snapshot?.() || null;
   if(pic) g.pic = pic;
   album.add({ id: Date.now(), date: today(), title: g.title, recipe: g.recipe, seconds: g.seconds, stats: g.inst.stats?.() || null,
@@ -216,7 +233,7 @@ async function finished(){
       h('h2', {}, name ? `Wonderful, ${name}!` : 'Wonderful!'),
       picURL ? h('img', { class:'win-pic', src: picURL, alt: g.title }) : null,
       h('p', { class:'big' }, g.game.finishText(g.recipe, g.seconds, g.inst.stats?.() || {})),
-      st ? h('p', {}, st.count > 1 ? `🔥 That's ${st.count} days in a row!` : `🔥 Today’s ${isDaily ? 'puzzle' : 'deal'} is done. See you tomorrow for a new one!`) : null,
+      st ? h('p', {}, st.count > 1 ? `🔥 That's ${st.count} days in a row!` : `🔥 Today’s ${isDaily ? 'puzzle' : g.game.id === 'solitaire' ? 'deal' : g.game.noun} is done. See you tomorrow for a new one!`) : null,
       h('div', { class:'stack' },
         h('button', { class:'primary', autofocus:true, onclick: () => shareDialog(g, true) }, '💌 Share with family'),
         h('button', { class:'secondary', onclick: () => { closeDialog(); show('home'); } }, g.game.id === 'jigsaw' ? '🧩 Another puzzle' : `${g.game.emoji} Another game`),
@@ -320,35 +337,36 @@ const today$ = () => { const seed = [...today()].reduce((a,c) => Math.imul(a ^ c
   return { g:'jigsaw', src:{ t:'scene', id: pickScene(seed), s: seed }, n: settings.get().pieces, k: seed ^ 0x2545F491, d: today() }; };
 const newJigsaw = (src, n) => jigsaw.newRecipe(randSeed(), { src, n });
 
-// Never silently replace a game in progress (playtest: grandparents lost their place this way).
-function guardNew(go){
-  const c = current.get(); if(!c || !gameOf(c.recipe)) return go();
-  dialog(h('h2', {}, 'Start something new?'), h('p', { class:'big' }, 'You have a game in progress. Starting a new one will replace it.'),
-    h('div', { class:'stack' }, h('button', { class:'primary', autofocus:true, onclick: () => { closeDialog(); $('#continueBtn').click(); } }, 'Keep going with my game'),
+// Never silently replace a game in progress. Each game has its own save, so only the same game can be replaced.
+function guardNew(id, go){
+  const c = current.get(id); if(!c || !gameOf(c.recipe)) return go();
+  const game = gameOf(c.recipe);
+  dialog(h('h2', {}, `Start a new ${game.noun}?`), h('p', { class:'big' }, `You have a ${game.noun} in progress. Starting a new one will replace it. Your other games are kept.`),
+    h('div', { class:'stack' }, h('button', { class:'primary', autofocus:true, onclick: () => { closeDialog(); resumeGame(id); } }, `Keep going with my ${game.noun}`),
       h('button', { class:'secondary', onclick: () => { closeDialog(); go(); } }, 'Start the new one')));
 }
-$('#todayBtn').onclick = () => guardNew(() => startGame(today$()));
+$('#todayBtn').onclick = () => guardNew('jigsaw', () => startGame(today$()));
 // Daily games: the date (and the game) pick the seed, so everyone gets the same game today.
 const DAILY = ['solitaire', 'words', 'sudoku'];
 const DAILY_OPTS = { solitaire: { draw: 1 }, sudoku: { level: 'easy' }, words: { size: 10, theme: 'any' } };
 function startDaily(g){
   const seed = ([...(today() + g.id)].reduce((a,c) => Math.imul(a ^ c.charCodeAt(0), 16777619), 2166136261)) >>> 1;
   const opts = { ...Object.fromEntries((g.options||[]).map(o => [o.key, o.default])), ...(settings.get()['opts_' + g.id] || {}), ...(DAILY_OPTS[g.id] || {}) };
-  guardNew(() => startGame(g.newRecipe(seed, opts), { daily: today() }));
+  guardNew(g.id, () => startGame(g.newRecipe(seed, opts), { daily: today() }));
 }
 $('#photoBtn').onclick = () => $('#file').click();
 $('#file').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if(!f) return;
   if(f.size > 40e6){ toast('That photo is too large to open.'); return; }
   let img; try{ img = await fromBlob(f); }catch(_){ toast("Sorry — that photo couldn't be opened."); return; }
-  chooseSize(n => guardNew(() => startGame(newJigsaw({ t:'img' }, n), { source: img })));
+  chooseSize(n => guardNew('jigsaw', () => startGame(newJigsaw({ t:'img' }, n), { source: img })));
 };
 $('#paintBtn').onclick = () => {
   const grid = h('div', { class:'pics' });
   for(const sc of SCENES){
     const seed = randSeed(), c = paintScene(sc.id, seed, 320, 240);
     c.setAttribute('aria-hidden', 'true');
-    grid.append(h('button', { onclick: () => chooseSize(n => guardNew(() => startGame(newJigsaw({ t:'scene', id: sc.id, s: seed }, n)))) },
+    grid.append(h('button', { onclick: () => chooseSize(n => guardNew('jigsaw', () => startGame(newJigsaw({ t:'scene', id: sc.id, s: seed }, n)))) },
       c, h('span', {}, h('span', { 'aria-hidden':'true' }, sc.emoji + ' '), sc.name)));
   }
   dialog(h('h2', {}, 'Painted pictures'), h('p', { class:'muted' }, 'Each one is freshly painted — no two are ever the same.'), grid);
@@ -364,7 +382,7 @@ $('#surpriseBtn').onclick = async () => {
   $('#toast').classList.add('hidden');
   const src = pick ? { t:'pic', id: +pick.id, a: cleanText(String(pick.author), 40) } : { t:'scene', id: pickScene(randSeed()), s: randSeed() };
   if(!pick) toast("No internet photo right now — here's a painted picture instead.", 5000);
-  chooseSize(n => guardNew(() => startGame(newJigsaw(src, n))));
+  chooseSize(n => guardNew('jigsaw', () => startGame(newJigsaw(src, n))));
 };
 let family = [];
 fetch('photos.json').then(r => r.ok ? r.json() : []).then(l => { family = (Array.isArray(l) ? l : []).map(x => typeof x === 'string' ? { src:x } : x).filter(x => x && safePath(x.src)); $('#familyBtn').classList.toggle('hidden', !family.length); }).catch(()=>{});
@@ -379,15 +397,15 @@ function gameOptions(game){
     if(!(o.key in chosen)) chosen[o.key] = o.default;
     const btns = o.choices.map(([v, label]) => h('button', { 'aria-pressed': String(chosen[o.key] === v),
       onclick: e => { chosen[o.key] = v; for(const b of e.currentTarget.parentNode.children) b.setAttribute('aria-pressed', String(b === e.currentTarget)); } }, label));
-    return h('div', { class:'opt-group', role:'group', 'aria-label': o.label }, h('h3', {}, o.label), h('div', { class:'stack' }, btns));
+    return h('div', { class:'opt-group', role:'group', 'aria-label': o.label }, h('h3', {}, o.label), h('div', { class: o.choices.length > 4 ? 'opt-chips' : 'stack' }, btns));
   });
   dialog(h('h2', {}, `${game.name}`), h('p', { class:'muted' }, game.blurb), groups,
-    h('button', { class:'primary', style:'width:100%;margin-top:16px', autofocus:true, onclick: async () => {
+    h('div', { class:'sticky-go' }, h('button', { class:'primary', onclick: async () => {
       settings.set({ ['opts_' + game.id]: chosen }); closeDialog();
       toast(`Shuffling…`, 8000); await new Promise(r => setTimeout(r, 30));
       const recipe = game.newRecipe(randSeed(), chosen);
-      guardNew(() => startGame(recipe));
-    } }, `Start ${game.name}`));
+      guardNew(game.id, () => startGame(recipe));
+    } }, `Start ${game.name}`)));
 }
 function renderGameTiles(){
   $('#gameTiles').prepend(...GAMES.filter(g => g.id !== 'jigsaw').map(g =>
@@ -418,23 +436,23 @@ async function albumItem(it){
       h('button', { class:'secondary', onclick: async () => { await album.remove(it.id); closeDialog(); toast('Removed from your scrapbook.'); } }, '🗑️ Remove')));
 }
 
-$('#continueBtn').onclick = async () => {
-  const c = current.get(); if(!c){ refreshHome(); return; }
+async function resumeGame(id){
+  const c = current.get(id); if(!c){ refreshHome(); return; }
   const game = gameOf(c.recipe); const recipe = game && game.normalize(c.recipe);
-  if(!recipe){ current.clear(); refreshHome(); return; }
+  if(!recipe){ current.clear(id); refreshHome(); return; }
   if(c.recipe.f) recipe.f = cleanText(c.recipe.f, 40);
   let source;
-  if(game.usesPicture){ const blob = await current.image(); if(!blob){ current.clear(); refreshHome(); return; } source = await fromBlob(blob); }
+  if(game.usesPicture){ const blob = await current.image(id); if(!blob){ current.clear(id); refreshHome(); return; } source = await fromBlob(blob); }
   // saves from before games existed stored the jigsaw map directly
   const state = c.g || (c.state && c.state.v) ? c.state : { v: c.sv === 2 ? 2 : 1, p: c.state };
   startGame(recipe, { source, resume: { ...c, state } });
-};
+}
 
 // ---------------- music ----------------
 let nowPlaying = null, musicState = 'paused', musicPanelOpen = false;
 const music = createMusic({
-  onTrack: t => { nowPlaying = t; if(musicPanelOpen) musicDialog(); else if(t && musicState === 'playing') toast(`🎵 ${t.title}${t.artist ? ' — ' + t.artist : ''}${t.year ? ` (${t.year})` : ''}`, 5000); },
-  onState: s => { musicState = s; for(const b of [$('#homeMusic'), $('#playMusic')]){ b.classList.toggle('on', s === 'playing' || s === 'loading'); b.setAttribute('aria-label', s === 'playing' ? 'Music (playing)' : 'Music'); }
+  onTrack: t => { nowPlaying = t; if(musicPanelOpen) musicDialog(); else if(t && musicState === 'playing' && $('#play').classList.contains('hidden')) toast(`🎵 ${t.title}${t.artist ? ' — ' + t.artist : ''}${t.year ? ` (${t.year})` : ''}`, 5000); },
+  onState: s => { musicState = s; for(const b of [$('#homeMusic'), $('#playMusic')]){ const on = s === 'playing' || s === 'loading' || (s === 'offline' && music.playing); b.classList.toggle('on', on); b.setAttribute('aria-label', on ? 'Music (playing)' : 'Music'); }
     if(musicPanelOpen) musicDialog(); },
 });
 function musicDialog(){
@@ -443,29 +461,37 @@ function musicDialog(){
   const vol = h('input', { type:'range', min:0, max:1, step:.05, value: music.volume, 'aria-label':'Volume', 'aria-valuetext': `${Math.round(music.volume*100)} percent`,
     oninput: e => { music.setVolume(+e.target.value); e.target.setAttribute('aria-valuetext', `${Math.round(+e.target.value*100)} percent`); } });
   const groups = [['', STATIONS.filter(s => s.group !== 'nostalgia')], ['Nostalgia: real records from 1900–1925', STATIONS.filter(s => s.group === 'nostalgia')]].filter(([,l]) => l.length);
-  dialog(h('h2', {}, '🎵 Music'),
-    h('div', { class:'switch' }, h('span', {}, on ? 'Music is on' : 'Music is off'),
-      h('button', { class: on ? 'on' : '', 'aria-pressed': String(on), onclick: () => on ? music.stop() : music.play() }, on ? 'Turn off' : 'Turn on')),
-    groups.map(([label, list]) => [label ? h('h3', { style:'margin:16px 0 0;font:600 20px var(--title)' }, label) : null,
-      h('div', { class:'stations', role:'group', 'aria-label': label || 'Music stations' }, list.map(st => h('button', { class: st.id === music.station ? 'on' : '', 'aria-pressed': String(st.id === music.station), onclick: () => music.play(st.id) },
-        h('b', {}, h('span', { 'aria-hidden':'true' }, `${st.emoji} `), st.name), h('small', {}, st.blurb))))]),
-    musicState === 'offline' ? h('p', { class:'muted' }, '📻 The old records can’t be reached right now, so gentle made-up music is playing instead. It will try again soon.') : null,
-    nowPlaying && on ? h('div', { class:'now record' },
+  const nowBlock = nowPlaying && on ? h('div', { class:'now record' },
       nowPlaying.image && /^https:\/\/archive\.org\//.test(nowPlaying.image) ? h('img', { src: nowPlaying.image, alt:'The original record label', loading:'lazy', onerror: e => e.target.remove() }) : null,
       h('div', {}, h('small', { class:'muted' }, musicState === 'loading' ? 'Finding a record…' : 'Now playing'),
         h('b', {}, nowPlaying.title), h('span', {}, [nowPlaying.artist, nowPlaying.year].filter(Boolean).join(' · ')),
-        nowPlaying.url && /^https:\/\/archive\.org\//.test(nowPlaying.url) ? h('div', {}, h('a', { href: nowPlaying.url, target:'_blank', rel:'noopener noreferrer' }, 'About this record')) : null)) : null,
-    on ? h('button', { class:'secondary', style:'margin-top:10px;width:100%', onclick: () => music.next() }, '⏭️ Next song') : null,
-    on && music.nowPlayingRef ? (() => { const ref = music.nowPlayingRef, kept = playlists.isKept(ref);
-      return h('button', { class: kept ? 'secondary on' : 'secondary', 'aria-pressed': String(kept), style:'margin-top:10px;width:100%',
-        onclick: () => { if(playlists.isKept(ref)) playlists.unkeep(ref); else playlists.keep(ref); announce(playlists.isKept(ref) ? 'Song kept in your playlist.' : 'Song removed from kept songs.'); musicDialog(); } },
-        kept ? '♥ Kept — tap to remove' : '♡ Keep this song'); })() : null,
+        nowPlaying.url && /^https:\/\/archive\.org\//.test(nowPlaying.url) ? h('div', {}, h('a', { href: nowPlaying.url, target:'_blank', rel:'noopener noreferrer' }, 'About this record')) : null)) : null;
+  const keepBtn = on && music.nowPlayingRef ? (() => { const ref = music.nowPlayingRef, kept = playlists.isKept(ref);
+      return h('button', { class: kept ? 'secondary on' : 'secondary', 'aria-pressed': String(kept),
+        onclick: () => { if(playlists.isKept(ref)) playlists.unkeep(ref); else { playlists.keep(ref); music.cacheIfKept?.(ref); } announce(playlists.isKept(ref) ? 'Song kept in your playlist.' : 'Song removed from kept songs.'); musicDialog(); } },
+        kept ? '♥ Kept' : '♡ Keep this song'); })() : null;
+  dialog(h('h2', {}, '🎵 Music'),
+    h('div', { class:'switch' }, h('span', {}, on ? 'Music is on' : 'Music is off'),
+      h('button', { class: on ? 'on' : '', 'aria-pressed': String(on), onclick: () => on ? music.stop() : music.play() }, on ? 'Turn off' : 'Turn on')),
+    musicState === 'offline' ? h('p', { class:'muted' }, '📻 The old records can’t be reached right now, so gentle made-up music is playing instead. It will try again soon.') : null,
+    nowBlock,
+    on ? h('div', { class:'share-btns', style:'margin-top:10px' }, h('button', { class:'secondary', onclick: () => music.next() }, '⏭️ Next song'), keepBtn) : null,
     h('button', { class:'secondary', style:'margin-top:10px;width:100%', onclick: () => { musicPanelOpen = false; openPlaylistsDialog({ dialog, closeDialog, h, toast, announce, music }); } }, '📋 My playlists'),
+    groups.map(([label, list]) => [h('h3', { style:'margin:16px 0 0;font:600 20px var(--title)' }, label || 'Made for you'),
+      h('div', { class:'stations chips', role:'group', 'aria-label': label || 'Music stations' }, list.map(st => h('button', { class: st.id === music.station ? 'on' : '', 'aria-pressed': String(st.id === music.station), onclick: () => music.play(st.id) },
+        h('b', {}, h('span', { 'aria-hidden':'true' }, `${st.emoji} `), st.name), h('small', {}, st.blurb))))]),
     typeof music.setRestore === 'function' ? h('div', { class:'switch' },
       h('span', {}, 'Smooth out old-record crackle', h('small', { class:'muted', style:'display:block;font-weight:400' },
         music.cleanMode === 'plain' ? 'Not available for these records — playing them as they are.' : 'Softens pops, hiss and rumble from the 100-year-old records.')),
       h('button', { class: music.restore ? 'on' : '', 'aria-pressed': String(!!music.restore), onclick: () => { music.setRestore(!music.restore); musicDialog(); } }, music.restore ? 'On' : 'Off')) : null,
+    typeof music.cacheInfo === 'function' ? cacheLine() : null,
     h('label', { class:'field' }, 'Volume', vol));
+}
+function cacheLine(){
+  const line = h('p', { class:'muted' }, 'Saved cleaned songs: checking…');
+  Promise.resolve(music.cacheInfo()).then(i => { if(!i || !i.songs){ line.textContent = 'Kept old records are saved here once cleaned, so they play instantly.'; return; }
+    line.replaceChildren(`Saved cleaned songs: ${i.songs} (${kb(i.bytes)}) `, h('button', { class:'linkish', style:'color:var(--ink)', onclick: async () => { await music.clearCache?.(); toast('Saved songs cleared.'); musicDialog(); } }, 'Clear')); }).catch(() => line.remove());
+  return line;
 }
 $('#homeMusic').onclick = musicDialog;
 $('#playMusic').onclick = musicDialog;
@@ -503,11 +529,11 @@ $('#openSettings').onclick = () => {
 // ---------------- backup & restore ----------------
 const kb = n => n < 1024 ? `${n} bytes` : n < 1048576 ? `${(n/1024).toFixed(n<10240?1:0)} KB` : `${(n/1048576).toFixed(1)} MB`;
 async function backupDialog(){
-  const items = await album.all(), cur = current.get();
-  const res = await exportBackup({ album: items, current: cur ? { ...cur, state: (cur.g || cur.state?.v) ? cur.state : { v: cur.sv === 2 ? 2 : 1, p: cur.state } } : null,
-    currentImage: cur ? await current.image() : null, streak: LS.get('jig.streak', null), settings: settings.get(), playlists: exportPlaylists() });
+  const items = await album.all(), saved = current.all();
+  const currents = await Promise.all(saved.map(async c => ({ ...c, state: (c.g || c.state?.v) ? c.state : { v: c.sv === 2 ? 2 : 1, p: c.state }, image: await current.image(c.g || 'jigsaw') })));
+  const res = await exportBackup({ album: items, currents, streak: LS.get('jig.streak', null), settings: settings.get(), playlists: exportPlaylists() });
   const { finished, inProgress, photos, size } = res.summary;
-  const what = [plural(finished, 'finished game'), inProgress ? '1 in progress' : null].filter(Boolean).join(' and ');
+  const what = [plural(finished, 'finished game'), inProgress ? `${inProgress} in progress` : null].filter(Boolean).join(' and ');
   const link = res.code ? location.href.split('#')[0] + '#b=' + res.code : null;
   const qr = link && qrCanvas(link, 360);
   if(qr){ qr.setAttribute('role', 'img'); qr.setAttribute('aria-label', 'Scan code that copies your games to another device'); }
@@ -545,15 +571,18 @@ async function restore(input){
         thumb: img ? await toBlob(img, .8, 480) : null, full: img ? await toBlob(img, .85, recipe.n > 100 ? 2600 : 1400) : null, embed: null });
       have.add(it.id); added++; }catch(_){}
   }
-  let curNote = '';
-  if(data.current){
-    const game = gameOf(data.current.recipe), recipe = game && game.normalize(data.current.recipe);
-    if(current.get()) curNote = ' Your own game in progress was kept.';
-    else if(recipe){ try{ const img = game.usesPicture ? await imgOf(recipe, data.current.image) : null;
-      if(game.usesPicture && !img) throw 0;
-      await current.save({ recipe, state: data.current.state, seconds: Math.max(0, data.current.seconds|0), progress: null, image: img ? await toBlob(img, .85) : null });
-      curNote = ' Your game in progress is ready to continue.'; }catch(_){} }
+  let curNote = '', resumed = 0, kept = 0;
+  for(const dc of (data.currents || []).slice(0, 12)){
+    const game = gameOf(dc.recipe), recipe = game && game.normalize(dc.recipe);
+    if(!recipe) continue;
+    if(current.get(game.id)){ kept++; continue; }
+    try{ const img = game.usesPicture ? await imgOf(recipe, dc.image) : null;
+      if(game.usesPicture && !img) continue;
+      await current.save({ recipe, state: dc.state, seconds: Math.max(0, dc.seconds|0), progress: null, image: img ? await toBlob(img, .85) : null });
+      resumed++; }catch(_){}
   }
+  if(resumed) curNote += ` ${plural(resumed, 'game')} in progress ready to continue.`;
+  if(kept) curNote += ` Your own games in progress were kept.`;
   let songs = 0; try{ songs = importPlaylists(data.playlists) || 0; }catch(_){}
   if(songs) curNote += ` ${plural(songs, 'song')} added to your playlists.`;
   const mine = LS.get('jig.streak', null), st = data.streak;
@@ -631,25 +660,29 @@ async function refreshHome(){
   $('#streakText').textContent = done ? `✓ Done today${st.count > 1 ? ` — 🔥 ${st.count} days in a row` : ''}. A new one arrives tomorrow.`
     : st.count > 0 ? `🔥 ${st.count} day${st.count>1?'s':''} in a row — keep it going!` : 'A new painted picture every day.';
   $('#todayBtn').textContent = done ? 'Play it again' : 'Start today’s puzzle';
-  $('#keepSafe').classList.toggle('hidden', !(isIOS && !installed() && !LS.get('jig.keepSafeSeen') && (current.get() || (await album.all()).length)));
+  $('#keepSafe').classList.toggle('hidden', !(isIOS && !installed() && !LS.get('jig.keepSafeSeen') && (current.all().length || (await album.all()).length)));
   const dailies = DAILY.map(getGame).filter(Boolean);
   $('#dealCard').classList.toggle('hidden', !dailies.length);
   $('#dailyRows').replaceChildren(...dailies.map(g => { const st = gameStreak(g.id), s = st.get(), done = st.doneToday();
     return h('div', { class:'daily-row' }, h('span', { class:'emoji', 'aria-hidden':'true' }, g.emoji),
       h('div', {}, h('b', {}, `Today's ${g.name}`), h('span', { class:'muted' }, done ? `✓ Done today${s.count > 1 ? ` — 🔥 ${s.count} days in a row` : ''}` : s.count > 0 ? `🔥 ${s.count} day${s.count>1?'s':''} in a row` : 'Ready when you are')),
       h('button', { class:'primary', 'aria-label': `${done ? 'Play again' : 'Play'}: today's ${g.name}`, onclick: () => startDaily(g) }, done ? 'Play again' : 'Play')); }));
-  const c = current.get(), game = c && gameOf(c.recipe);
-  $('#continueCard').classList.toggle('hidden', !game);
-  if(game){
+  const saved = current.all().filter(c => gameOf(c.recipe));
+  $('#continueCard').classList.toggle('hidden', !saved.length);
+  const urls = [];
+  const rows = await Promise.all(saved.map(async c => {
+    const game = gameOf(c.recipe), id = game.id;
     let prog = c.progress;
-    if(!prog && game.id === 'jigsaw'){ const vals = Object.values(c.state?.p || c.state || {}); prog = { done: vals.filter(v => v && v[2]).length, total: vals.length }; }
-    $('#continueText').textContent = `${game.title(c.recipe, c.recipe.f)}${prog ? ` — ${game.progressLabel(prog.done, prog.total)}` : ''}`;
-    $('#continueBtn').setAttribute('aria-label', `Keep going with ${game.title(c.recipe, c.recipe.f)}`);
-    $('#continueEmoji').textContent = game.usesPicture ? '' : game.emoji;
-    const ti = $('#continueThumb'); ti.removeAttribute('src');
-    if(game.usesPicture){ const blob = await current.image();
-      if(blob){ const u = URL.createObjectURL(blob); ti.onload = () => URL.revokeObjectURL(u); ti.src = u; } }
-  }
+    if(!prog && id === 'jigsaw'){ const vals = Object.values(c.state?.p || c.state || {}); prog = { done: vals.filter(v => v && v[2]).length, total: vals.length }; }
+    const title = game.title(c.recipe, c.recipe.f);
+    let pic = h('span', { class:'continue-pic', 'aria-hidden':'true' }, game.emoji);
+    if(game.usesPicture){ const blob = await current.image(id); if(blob){ const u = URL.createObjectURL(blob); urls.push(u); pic = h('span', { class:'continue-pic', 'aria-hidden':'true' }, h('img', { src:u, alt:'' })); } }
+    return h('div', { class:'continue-row' }, pic,
+      h('p', { class:'big' }, title, prog ? h('span', { class:'muted' }, ` — ${game.progressLabel(prog.done, prog.total)}`) : null),
+      h('button', { class:'primary', 'aria-label': `Keep going with ${title}`, onclick: () => resumeGame(id) }, 'Keep going ▶'));
+  }));
+  $('#continueRows').replaceChildren(...rows);
+  setTimeout(() => urls.forEach(u => URL.revokeObjectURL(u)), 60000);
 }
 
 // ---------------- start-up ----------------

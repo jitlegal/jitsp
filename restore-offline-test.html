@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Ahead-of-time 78 restoration test</title>
+<link rel="stylesheet" href="css/app.css"></head>
+<body><canvas id="cv" width="1500" height="1300"></canvas>
+<script type="module">
+import { createRestoreChain, createAudioCache } from './js/music.js';
+import { restore } from './js/restore-offline-worker.js';
+const SR = 44100, SECS = 20, N = SR * SECS;
+
+// ---------- deterministic test material ----------
+function rng(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const R = rng(78);
+const music = new Float32Array(N);
+const scale = [220, 247, 277, 294, 330, 370, 415, 440, 494, 554, 587, 659, 740, 831, 880];
+for (let n = 0; n < SECS * 2; n++) {                  // two notes a second, loud and quiet sections every 5 s
+  const t0 = Math.floor(n * SR / 2), f = scale[Math.floor(R() * scale.length)], loud = Math.floor(n / 10) % 2 === 0 ? 0.5 : 0.08;
+  const saw = R() < 0.5, dur = Math.floor(SR * 0.6);
+  for (let i = 0; i < dur && t0 + i < N; i++) {
+    const t = i / SR, env = Math.min(1, t / 0.01) * Math.exp(-t * 2.5);
+    let v = 0; for (let h = 1; h * f < 4200; h++) v += (saw ? 1 / h : (h === 1 ? 1 : (h % 2 ? 0.25 / h : 0))) * Math.sin(2 * Math.PI * f * h * t);
+    v += 0.5 * Math.sin(2 * Math.PI * (f / 2) * t);  // bass voice
+    music[t0 + i] += loud * env * v * 0.55;
+  }
+}
+// 78 rpm noise: rumble (shared), hiss (half shared, half per groove wall), clicks (mostly shared), crackle (per wall)
+const noiseL = new Float32Array(N), noiseR = new Float32Array(N);
+let clicksInjected = 0;
+{
+  const pink = () => { let b0 = 0, b1 = 0, b2 = 0; return w => { b0 = 0.99765 * b0 + w * 0.0990460; b1 = 0.96300 * b1 + w * 0.2965164; b2 = 0.57000 * b2 + w * 1.0526913; return (b0 + b1 + b2 + w * 0.1848) * 0.11; }; };
+  const pS = pink(), pL = pink(), pR = pink();
+  for (let i = 0; i < N; i++) {
+    const shared = pS(R() * 2 - 1);
+    const hissAmp = 0.035;
+    noiseL[i] += hissAmp * (shared + pL(R() * 2 - 1)) + 0.03 * Math.sin(2 * Math.PI * 30 * i / SR);
+    noiseR[i] += hissAmp * (shared + pR(R() * 2 - 1)) + 0.03 * Math.sin(2 * Math.PI * 30 * i / SR);
+  }
+  const addClick = (arr, at, amp, width) => { for (let j = 0; j < width && at + j < N; j++) arr[at + j] += amp * Math.sin(Math.PI * (j + 0.5) / width) * Math.exp(-3 * j / width); };
+  for (let c = 0; c < SECS * 8; c++) {                // ~8 real clicks a second, 1–40 samples wide
+    const at = Math.floor(R() * N), amp = (0.1 + R() * 0.7) * (R() < 0.5 ? -1 : 1), width = 1 + Math.floor(R() * R() * 40);
+    const where = R(); if (where < 0.7) { addClick(noiseL, at, amp, width); addClick(noiseR, at, amp, width); } else addClick(where < 0.85 ? noiseL : noiseR, at, amp, width);
+    clicksInjected++;
+  }
+  for (let c = 0; c < SECS * 60; c++) { const at = Math.floor(R() * N), amp = (0.01 + R() * 0.04) * (R() < 0.5 ? -1 : 1);
+    addClick(R() < 0.5 ? noiseL : noiseR, at, amp, 1 + Math.floor(R() * 3)); }
+}
+const gaps = [[SR * 4, SR * 5], [SR * 14, SR * 15]];      // silent bars between songs: noise alone
+for (const [a, b] of gaps) music.fill(0, a, b);
+noiseL.fill(0, 0, SR / 2); noiseR.fill(0, 0, SR / 2); music.fill(0, 0, SR / 2);   // a track starts after digital silence
+const noisyL = music.map((v, i) => v + noiseL[i]), noisyR = music.map((v, i) => v + noiseR[i]);
+
+async function runChain(L, Rch, stages = {}) {
+  const ctx = new OfflineAudioContext(1, N, SR);
+  const chain = createRestoreChain(ctx, { enabled: true, stages });
+  await chain.ready;
+  const buf = ctx.createBuffer(2, N, SR); buf.copyToChannel(L, 0); buf.copyToChannel(Rch, 1);
+  const src = ctx.createBufferSource(); src.buffer = buf; src.connect(chain.input); chain.output.connect(ctx.destination); src.start();
+  const out = await ctx.startRendering();
+  let stats = null;
+  if (chain.worklet) stats = await new Promise(res => { chain.worklet.port.onmessage = e => res(e.data); chain.worklet.port.postMessage('stats'); setTimeout(() => res(null), 1000); });
+  return { y: out.getChannelData(0), worklet: !!chain.worklet, stats };
+}
+function fft(re, im) { const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) { let b = n >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; } }
+  for (let len = 2; len <= n; len <<= 1) { const a = -2 * Math.PI / len, wr = Math.cos(a), wi = Math.sin(a);
+    for (let i = 0; i < n; i += len) { let cr = 1, ci = 0; for (let k = 0; k < len / 2; k++) { const ur = re[i + k], ui = im[i + k], vr = re[i + k + len / 2] * cr - im[i + k + len / 2] * ci, vi = re[i + k + len / 2] * ci + im[i + k + len / 2] * cr;
+      re[i + k] = ur + vr; im[i + k] = ui + vi; re[i + k + len / 2] = ur - vr; im[i + k + len / 2] = ui - vi; const nr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = nr; } } } }
+const F = 2048, hann = Float32Array.from({ length: F }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / F));
+function spectrum(x, from = 0, to = x.length) { const acc = new Float64Array(F / 2); let frames = 0;
+  for (let s = from; s + F <= to; s += F / 2) { const re = new Float64Array(F), im = new Float64Array(F); for (let i = 0; i < F; i++) re[i] = x[s + i] * hann[i]; fft(re, im);
+    for (let k = 0; k < F / 2; k++) acc[k] += re[k] * re[k] + im[k] * im[k]; frames++; }
+  return acc.map(v => v / frames); }
+const band = (sp, lo, hi) => { let s = 0; for (let k = Math.ceil(lo * F / SR); k <= Math.floor(hi * F / SR); k++) s += sp[k]; return 10 * Math.log10(s + 1e-20); };
+function d2peaks(x, thr) { let n = 0, last = -1e9; for (let i = 2; i < x.length; i++) { if (Math.abs(x[i] - 2 * x[i - 1] + x[i - 2]) > thr) { if (i - last > SR * 0.002) n++; last = i; } } return n; }
+const maxd2 = x => { let m = 0; for (let i = 2; i < x.length; i++) m = Math.max(m, Math.abs(x[i] - 2 * x[i - 1] + x[i - 2])); return m; };
+const snr = (ref, x) => { let s = 0, e = 0; for (let i = 0; i < ref.length; i++) { s += ref[i] * ref[i]; e += (x[i] - ref[i]) ** 2; } return 10 * Math.log10(s / e); };
+function corr(a, b, lag = 0) { let sab = 0, saa = 0, sbb = 0; for (let i = 0; i + lag < a.length; i++) { const x = a[i + lag], y = b[i]; sab += x * y; saa += x * x; sbb += y * y; } return sab / Math.sqrt(saa * sbb); }
+
+const mono = (a, b) => a.map((v, i) => (v + b[i]) / 2);
+const noisyM = mono(noisyL, noisyR);
+const fit = (x, ref) => { let xy = 0, xx = 0; for (let i = 0; i < x.length; i++) { xy += x[i] * ref[i]; xx += x[i] * x[i]; } const g = xy / xx; return x.map(v => v * g); };   // level-match before SNR
+const live = await runChain(noisyL, noisyR), liveClean = await runChain(music, music);
+let t = performance.now(); const off = restore(noisyM, SR); const offMs = performance.now() - t;
+const offClean = restore(music, SR);
+const lag = (y, ref) => { let bl = 0, b = -2; for (let l = 0; l < 2200; l++) { const c = corr(y.subarray(0, SR * 4), ref.subarray(0, SR * 4), l); if (c > b) { b = c; bl = l; } } return bl; };
+const shift = (y, l) => { const o = new Float32Array(y.length); o.set(y.subarray(l)); return o; };
+const liveA = shift(live.y, lag(live.y, music)), liveC = shift(liveClean.y, lag(liveClean.y, music));
+const rms = (x, a, b) => { let s = 0; for (let i = a; i < b; i++) s += x[i] * x[i]; return Math.sqrt(s / (b - a)); };
+const gapRms = x => Math.sqrt(gaps.reduce((s, [a, b]) => s + rms(x, a + 2000, b) ** 2, 0) / gaps.length);
+const loudRef = x => rms(x, SR * 0.5, SR * 4);
+const db = v => +(20 * Math.log10(v)).toFixed(1);
+const tilt = x => { const sp = spectrum(x); return +(band(sp, 1000, 4000) - band(sp, 100, 1000)).toFixed(1); };
+const bandIn = (x, a, b) => band(spectrum(x, Math.floor(a), Math.floor(b)), 200, 4000);
+const m4 = (y, yClean) => {
+  const thr = 1.2 * maxd2(yClean), ref = yClean;
+  return { clicks: d2peaks(y, thr), clicks_fine: d2peaks(y, 0.5 * maxd2(yClean)), clicks_fine_on_clean: d2peaks(yClean, 0.5 * maxd2(yClean)),
+    snr_vs_same_processing_dB: +snr(fit(yClean, y), y).toFixed(1), corr_vs_same_processing: +corr(y, yClean).toFixed(4),
+    floor_in_gaps_dB: db(gapRms(y) / loudRef(ref)),
+    quiet_vs_loud_music_dB: +(bandIn(y, SR * 5.2, SR * 9.8) - bandIn(y, SR * 0.6, SR * 3.9)).toFixed(1),
+    corr_loud_section_vs_clean: +corr(y.subarray(SR * 0.6, SR * 3.9), music.subarray(SR * 0.6, SR * 3.9)).toFixed(4),
+    hiss_2to6k_gaps_dB: +(band(spectrum(y, gaps[0][0] + 2048, gaps[0][1]), 2000, 6000) - band(spectrum(ref, SR / 2, SR * 4), 100, 4000)).toFixed(1),
+    tilt_1to4k: tilt(yClean), snr_vs_clean_dB: +snr(music, fit(y, music)).toFixed(1), corr_vs_clean: +corr(y, music).toFixed(4) };
+};
+const report = {
+  clicksInjected,
+  clean: { quiet_vs_loud_music_dB: +(bandIn(music, SR * 5.2, SR * 9.8) - bandIn(music, SR * 0.6, SR * 3.9)).toFixed(1) },
+  before: { quiet_vs_loud_music_dB: +(bandIn(noisyM, SR * 5.2, SR * 9.8) - bandIn(noisyM, SR * 0.6, SR * 3.9)).toFixed(1), corr_loud_section_vs_clean: +corr(noisyM.subarray(SR * 0.6, SR * 3.9), music.subarray(SR * 0.6, SR * 3.9)).toFixed(4), clicks: d2peaks(noisyM, 1.2 * maxd2(music)), clicks_fine: d2peaks(noisyM, 0.5 * maxd2(music)), floor_in_gaps_dB: db(gapRms(noisyM) / loudRef(music)), tilt_1to4k: tilt(music), snr_vs_clean_dB: +snr(music, noisyM).toFixed(1), corr_vs_clean: +corr(noisyM, music).toFixed(4) },
+  live: m4(liveA, liveC), aheadOfTime: m4(off.pcm, offClean.pcm),
+  offlineStats: off.stats, falseRepairsOnCleanMusic: offClean.stats.clicks1.repaired + offClean.stats.clicks2.repaired,
+  timing: { mainThread_20s_ms: Math.round(offMs) },
+};
+// 3-minute track through the real Worker (as the app does)
+{ const L = SR * 180, long = new Float32Array(L); for (let i = 0; i < L; i++) long[i] = noisyM[i % noisyM.length];
+  const w = new Worker(new URL('./js/restore-offline-worker.js', import.meta.url), { type: 'module' });
+  const t1 = performance.now();
+  const res = await new Promise((ok, fail) => { w.onmessage = e => { if (e.data.type === 'done') ok(e.data); else if (e.data.type === 'error') fail(e.data.message); }; w.onerror = e => fail(e.message); w.postMessage({ id: 1, pcm: long, sr: SR }, [long.buffer]); });
+  report.timing.worker_3min_ms = Math.round(performance.now() - t1); report.timing.seconds_per_minute_of_audio = +(report.timing.worker_3min_ms / 1000 / 3).toFixed(1); report.timing.stages_ms = res.stats.ms; w.terminate(); }
+// ---------- cache tests ----------
+const cacheT = {};
+{ const MB = 500000, mk = v => { const a = new Int16Array(MB); a.fill(v); return a; };
+  const c1 = createAudioCache({ name: 'aot-test', version: 'v1', cap: 3 * MB * 2 + 100 });
+  await c1.clear();
+  cacheT.put3 = [await c1.put('a', mk(1), 22050), await c1.put('b', mk(2), 22050), await c1.put('c', mk(3), 22050)];
+  await new Promise(r => setTimeout(r, 20)); const ga = await c1.get('a');
+  cacheT.hit = !!ga && ga.pcm.length === MB && ga.pcm[5] === 1 && ga.sr === 22050;
+  cacheT.miss = (await c1.get('zzz')) === null;
+  await new Promise(r => setTimeout(r, 20)); cacheT.putD = await c1.put('d', mk(4), 22050);
+  cacheT.afterEviction = { a: await c1.has('a'), b: await c1.has('b'), c: await c1.has('c'), d: await c1.has('d') };   // b = least recently played
+  cacheT.info = await c1.info();
+  const c2 = createAudioCache({ name: 'aot-test', version: 'v2' });
+  cacheT.versionBump_v2_sees = await c2.info();
+  const c1again = createAudioCache({ name: 'aot-test', version: 'v1' });
+  cacheT.versionBump_old_entries_deleted = (await c1again.get('a')) === null;
+  const c3 = createAudioCache({ name: 'aot-test-q', estimate: async () => ({ quota: 100e6, usage: 90e6 }) });
+  cacheT.quotaTight_put = await c3.put('q', mk(5), 22050);
+  const c3b = createAudioCache({ name: 'aot-test-q2', estimate: async () => { throw new Error('no estimate'); } });
+  cacheT.estimateThrows_put = await c3b.put('q', mk(6), 22050);
+  const realOpen = indexedDB.open; let patched = false;
+  try { indexedDB.open = () => { throw new Error('IndexedDB broken'); }; patched = indexedDB.open !== realOpen; } catch (_) {}
+  const c4 = createAudioCache({ name: 'aot-test-err' });
+  cacheT.idbError = { patched, get: await c4.get('x'), put: await c4.put('x', mk(7), 22050), info: await c4.info() };
+  try { delete indexedDB.open; } catch (_) {} try { if (indexedDB.open !== realOpen) indexedDB.open = realOpen; } catch (_) {}
+  await createAudioCache({ name: 'aot-test', version: 'v2' }).clear(); }
+report.cache = cacheT;
+{ const cl = y => +corr(y.subarray(SR * 0.6, SR * 3.9), music.subarray(SR * 0.6, SR * 3.9)).toFixed(4), ab = {};
+  for (const [name, st] of [['declick_only', { denoise: false, tone: false }], ['coarse_only', { fine: false, denoise: false, tone: false }], ['denoise_only', { declick: false, tone: false }], ['tone_only', { declick: false, denoise: false }], ['all', {}]])
+    ab[name] = { noisy: cl(restore(noisyM, SR, undefined, st).pcm), clean: cl(restore(music, SR, undefined, st).pcm) };
+  const thr = 0.5 * maxd2(music);
+  for (const [name, st] of [['clicks_coarse_only', { fine: false, denoise: false, tone: false, level: false }], ['clicks_both_passes', { denoise: false, tone: false, level: false }]]) {
+    const y = restore(noisyM, SR, undefined, st).pcm; ab[name] = { fine_clicks: d2peaks(y, thr), corr_whole: +corr(y, music).toFixed(4) }; }
+  ab.raw = { fine_clicks: d2peaks(noisyM, thr), corr_whole: +corr(noisyM, music).toFixed(4) };
+  report.ablation_corr_loud = ab; }
+// ---------- pictures ----------
+const cv = document.getElementById('cv'), g = cv.getContext('2d');
+const rows = [['Clean reference', music], ['Before (as heard)', noisyM], ['Live chain (current)', liveA], ['Ahead-of-time (new)', off.pcm]];
+const RH = 320, W = 1500, FR = 1024;
+rows.forEach(([label, x], r) => {
+  const y0 = r * RH, img = g.createImageData(W, 240); let peak = 0; for (let i = 0; i < x.length; i++) peak = Math.max(peak, Math.abs(x[i])); const norm = 0.6 / (peak || 1);
+  for (let c = 0; c < W; c++) { const s = Math.floor(c / W * (x.length - FR)), re = new Float64Array(FR), im = new Float64Array(FR);
+    for (let i = 0; i < FR; i++) re[i] = x[s + i] * norm * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / FR)); fft(re, im);
+    for (let py = 0; py < 240; py++) { const k = Math.floor((1 - py / 240) * (12000 / SR * FR)) + 1, d = 10 * Math.log10(re[k] * re[k] + im[k] * im[k] + 1e-12);
+      const v = Math.max(0, Math.min(1, (d + 60) / 80)), o = (py * W + c) * 4; img.data[o] = 255 * Math.min(1, v * 1.6); img.data[o + 1] = 255 * Math.max(0, v * 1.6 - 0.5); img.data[o + 2] = 255 * Math.max(0, 1 - v * 2) * v * 2; img.data[o + 3] = 255; } }
+  g.putImageData(img, 0, y0 + 20); g.fillStyle = '#000'; g.fillRect(0, y0 + 260, W, 60); g.strokeStyle = '#6cf'; g.beginPath();
+  for (let c = 0; c < W; c++) { let mx = 0; const a = Math.floor(c / W * x.length), b = Math.floor((c + 1) / W * x.length); for (let i = a; i < b; i++) mx = Math.max(mx, Math.abs(x[i] * norm)); g.moveTo(c, y0 + 290 - mx * 40); g.lineTo(c, y0 + 290 + mx * 40); }
+  g.stroke(); g.fillStyle = '#fff'; g.font = '16px sans-serif'; g.fillText(label + '   (0–12 kHz, 20 s, level-normalised for display)', 8, y0 + 15);
+});
+function wav(x, ch2) { const n = x.length, chs = ch2 ? 2 : 1, b = new ArrayBuffer(44 + n * 2 * chs), v = new DataView(b);
+  const ws = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  ws(0, 'RIFF'); v.setUint32(4, 36 + n * 2 * chs, true); ws(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, chs, true);
+  v.setUint32(24, SR, true); v.setUint32(28, SR * 2 * chs, true); v.setUint16(32, 2 * chs, true); v.setUint16(34, 16, true); ws(36, 'data'); v.setUint32(40, n * 2 * chs, true);
+  let o = 44; for (let i = 0; i < n; i++) for (let c = 0; c < chs; c++) { const s = Math.max(-1, Math.min(1, (c ? ch2 : x)[i])); v.setInt16(o, s * 32767, true); o += 2; }
+  let bin = ''; const u = new Uint8Array(b); for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(bin); }
+
+const peakNorm = x => { let p = 0; for (const v of x) p = Math.max(p, Math.abs(v)); return x.map(v => v * 0.89 / (p || 1)); };
+window.__wavs = { clean: wav(music), before: wav(noisyM), live: wav(peakNorm(liveA)), offline: wav(off.pcm) };
+window.__report = report;
+</script></body></html>

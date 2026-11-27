@@ -69,7 +69,7 @@ export default {
       help: () => engine.help(),
       tidy: () => engine.tidy(),
       setPeek: on => engine.setPeek(on),
-      setFilter: f => engine.setFilter(f), get filter(){ return engine.filter; }, get edgesUseful(){ return engine.pieces.length >= 24; },
+      setFilter: f => engine.setFilter(f), get filter(){ return engine.filter; }, get edgesUseful(){ return engine.pieces.length >= 24; }, get edgesLeft(){ return engine.pieces.filter(p => p.edge && !p.placed).length; },
       get peek(){ return engine.peek; },
       zoomIn: () => engine.zoomIn(), zoomOut: () => engine.zoomOut(), showAll: () => engine.showAll(),
       resize: () => engine.resize(),

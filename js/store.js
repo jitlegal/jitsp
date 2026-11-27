@@ -31,17 +31,32 @@ async function tx(store, mode, fn){
   });
 }
 
-// ---------- puzzle in progress ----------
-// recipe: what the puzzle is (shareable); state: where pieces are; image: Blob of the picture.
+// ---------- games in progress: one save per game ----------
+// recipe: what the game is (shareable); state: game-specific; image: Blob of the picture (picture games).
+// Older versions kept a single save under 'jig.current'; it moves into its game's slot automatically.
+const SAVES = 'jig.saves';
+function saves(){
+  const all = LS.get(SAVES, {}) || {};
+  const old = LS.get('jig.current', null);
+  if(old && old.recipe){ const g = old.recipe.g || 'jigsaw'; if(!all[g]) all[g] = { ...old, g, legacyImg: true }; LS.set(SAVES, all); LS.del('jig.current'); }
+  return all;
+}
+const imgKey = (id, e) => e && e.legacyImg ? 'current' : 'current.' + id;
 export const current = {
   async save({recipe, state, seconds, progress, image, daily}){
-    LS.set('jig.current', { g: recipe.g || 'jigsaw', recipe, state, seconds, progress: progress || null, daily: daily || null, sv: 2, at: Date.now() });
-    if(image) await tx('images','readwrite', s => s.put(image, 'current')).catch(()=>{});
+    const g = recipe.g || 'jigsaw', all = saves();
+    all[g] = { g, recipe, state, seconds, progress: progress || null, daily: daily || null, sv: 2, at: Date.now() };
+    LS.set(SAVES, all);
+    if(image) await tx('images','readwrite', s => s.put(image, 'current.' + g)).catch(()=>{});
   },
-  saveState(state, seconds, progress){ const c = LS.get('jig.current'); if(c){ c.state = state; c.seconds = seconds; if(progress) c.progress = progress; c.g = c.recipe?.g || 'jigsaw'; c.sv = 2; c.at = Date.now(); LS.set('jig.current', c); } },
-  get(){ return LS.get('jig.current', null); },
-  async image(){ try{ return await tx('images','readonly', s => s.get('current')); }catch(_){ return null; } },
-  clear(){ LS.del('jig.current'); },
+  saveState(id, state, seconds, progress){ const all = saves(), c = all[id]; if(!c) return;
+    c.state = state; c.seconds = seconds; if(progress) c.progress = progress; c.sv = 2; c.at = Date.now(); LS.set(SAVES, all); },
+  get(id){ return saves()[id] || null; },
+  /** All saved games, most recently played first. */
+  all(){ return Object.values(saves()).filter(e => e && e.recipe).sort((a,b) => (b.at||0) - (a.at||0)); },
+  async image(id){ const e = saves()[id]; try{ return await tx('images','readonly', s => s.get(imgKey(id, e))); }catch(_){ return null; } },
+  clear(id){ const all = saves(), e = all[id]; delete all[id]; LS.set(SAVES, all);
+    tx('images','readwrite', s => s.delete(imgKey(id, e))).catch(()=>{}); },
 };
 
 // ---------- finished puzzles ----------

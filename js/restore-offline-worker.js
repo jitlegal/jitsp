@@ -27,19 +27,20 @@ if (isWorker) {
 }
 
 /** Clean a mono recording. Returns { pcm: Float32Array, stats }. Pure function (also used by the tests). */
-export function restore(input, sr, progress = () => {}) {
+export function restore(input, sr, progress = () => {}, stages = {}) {
+  const on = k => stages[k] !== false;           // test switches: declick, denoise, tone, level
   const t0 = now(), x = Float64Array.from(input), stats = { sr, seconds: +(x.length / sr).toFixed(1), ms: {} };
   const mark = name => { stats.ms[name] = Math.round(now() - (mark.t || t0)); mark.t = now(); };
   const p = 24;
   // 1–4: clicks. Coarse pass (bigger clicks, gaps up to ~8 ms), then a fine pass for crackle (≤ 2 ms).
-  stats.clicks1 = declick(x, sr, p, 4.5, Math.round(sr * 0.008), true, stats); progress('declick', 0.35); mark('declick1');
-  stats.clicks2 = declick(x, sr, p, 3.5, Math.round(sr * 0.002), false, stats); progress('declick', 0.5); mark('declick2');
+  if (on('declick')) stats.clicks1 = declick(x, sr, p, 4.5, Math.round(sr * 0.008), true, stats); progress('declick', 0.35); mark('declick1');
+  if (on('declick') && on('fine')) stats.clicks2 = declick(x, sr, p, 3.5, Math.round(sr * 0.002), false, stats); progress('declick', 0.5); mark('declick2');
   // 5: noise reduction from the record's own noise print
   const print = noisePrint(x, sr); stats.noisePrint = print ? print.from : 'none';
-  if (print) denoise(x, print.psd, (q) => progress('denoise', 0.5 + q * 0.4));
+  if (print && on('denoise')) denoise(x, print.psd, (q) => progress('denoise', 0.5 + q * 0.4));
   mark('denoise');
   // 6: tone + level
-  tone(x, sr); const g = level(x, sr); stats.levelGain_dB = +(20 * Math.log10(g)).toFixed(1);
+  if (on('tone')) tone(x, sr); const g = on('level') ? level(x, sr) : 1; stats.levelGain_dB = +(20 * Math.log10(g)).toFixed(1);
   mark('tone');
   const out = new Float32Array(x.length); for (let i = 0; i < x.length; i++) out[i] = x[i];
   stats.ms.total = Math.round(now() - t0);
@@ -61,16 +62,13 @@ function levinson(r, p) {                  // r[0..p] → prediction-error filte
   }
   return a;
 }
-function autocorr(x, from, to, p, r = new Float64Array(p + 1), win = true) {
+let WBUF = new Float64Array(4096);
+function autocorr(x, from, to, p, r = new Float64Array(p + 1)) {   // Hann-windowed segment, autocorrelation added into r
   const n = to - from; if (n <= p) return r;
-  for (let lag = 0; lag <= p; lag++) {
-    let s = 0;
-    for (let i = from + lag; i < to; i++) {
-      const wi = win ? 0.5 - 0.5 * Math.cos(2 * Math.PI * (i - from + 0.5) / n) : 1, wj = win ? 0.5 - 0.5 * Math.cos(2 * Math.PI * (i - lag - from + 0.5) / n) : 1;
-      s += x[i] * wi * x[i - lag] * wj;
-    }
-    r[lag] += s;
-  }
+  if (WBUF.length < n) WBUF = new Float64Array(n);
+  const w = WBUF, k = 2 * Math.PI / n;
+  for (let i = 0; i < n; i++) w[i] = x[from + i] * (0.5 - 0.5 * Math.cos(k * (i + 0.5)));
+  for (let lag = 0; lag <= p; lag++) { let s = 0; for (let i = lag; i < n; i++) s += w[i] * w[i - lag]; r[lag] += s; }
   return r;
 }
 
@@ -83,7 +81,8 @@ function declick(x, sr, p, k, maxGap, coarse, stats) {
     const r = autocorr(x, s - Math.min(s, B), s + B, p);
     const b = levinson(r, p); if (!b) continue;
     for (let i = 0; i < B; i++) { const t = s + i; let v = x[t]; for (let j = 1; j <= p; j++) v += b[j] * x[t - j]; e[i] = v; mag[i] = Math.abs(v); }
-    const sigma = 1.4826 * median(mag) + 1e-9, thr = k * sigma;
+    let ms = 0; for (let i = 0; i < B; i++) ms += x[s + i] * x[s + i];
+    const sigma = 1.4826 * median(mag) + 1e-9, thr = Math.max(k * sigma, 0.03 * Math.sqrt(ms / B), 1e-3);   // never flag what nobody could hear
     let cnt = 0; for (let i = 0; i < B; i++) if (mag[i] > thr) cnt++;
     if (cnt > B * 0.2) { blocksSkipped++; continue; }    // too much "surprise": noisy music (cymbals, sibilants), not clicks
     for (let i = 0; i < B; i++) if (mag[i] > thr) { const a = Math.max(0, s + i - widen), z = Math.min(n, s + i + widen + 1); for (let q = a; q < z; q++) flag[q] = 1; }
@@ -224,10 +223,12 @@ function rbj(type, f, sr, q = Math.SQRT1_2, dB = 0) {
     a0 = (A + 1) + (A - 1) * c + sq; a1 = -2 * ((A - 1) + (A + 1) * c); a2 = (A + 1) + (A - 1) * c - sq; }
   return [b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0];
 }
+// Offline we can filter forwards and then backwards ("zero-phase"): the same tone change with no time smear.
+function filtfilt(x, c) { biquad(x, ...c); x.reverse(); biquad(x, ...c); x.reverse(); }
 function tone(x, sr) {
-  biquad(x, ...rbj('hp', 70, sr)); biquad(x, ...rbj('hp', 70, sr));      // rumble and hum
-  biquad(x, ...rbj('lp', Math.min(8500, sr * 0.45), sr, 0.6));           // soft top: no hiss, no harshness
-  biquad(x, ...rbj('shelf', 200, sr, 0, 1.5));                           // a little warmth
+  filtfilt(x, rbj('hp', 70, sr));                                         // rumble and hum (≈ 4th order once both ways)
+  filtfilt(x, rbj('lp', Math.min(8500, sr * 0.45), sr, 0.6));             // soft top: no hiss, no harshness
+  filtfilt(x, rbj('shelf', 200, sr, 0, 0.75));                            // a little warmth (0.75 dB each way = 1.5 dB)
 }
 function level(x, sr) {                    // ≈ −16 LUFS (ungated K-weighting skipped), peak ≤ −1 dBFS
   const B = Math.round(sr * 0.4), ms = [];

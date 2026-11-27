@@ -13,6 +13,7 @@ const SILENT = 'data:audio/wav;base64,UklGRrQBAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAA
 const MIN_SEC = 60, MAX_SEC = 480, FADE_MS = 1500, FETCH_MS = 12000;
 
 import { MOODS, createSongPlayer } from './compose.js';
+import { playlists } from './playlists.js';
 
 // Made-up music first (calm, clean, works offline); the real 1900–1925 records are the 'Nostalgia' group.
 export const STATIONS = [
@@ -174,6 +175,79 @@ class MusicBox {
   }
 }
 
+// ------------------------------------------------------------------ ahead-of-time cleaned-audio cache
+// Only records the person cares about (kept songs / any playlist) are cached: random station plays
+// almost never repeat. Stored as mono Int16 at 22.05 kHz (~8 MB per 3 minutes), least-recently-played
+// eviction under a total cap, and a pipeline version in every key so a better pipeline replaces old copies.
+export const AOT_VERSION = 'aot-1';
+const CACHE_SR = 22050;
+export function createAudioCache({ name = 'family-audio', version = AOT_VERSION, cap = 150e6,
+  estimate = () => (navigator.storage && navigator.storage.estimate ? navigator.storage.estimate() : Promise.resolve(null)) } = {}) {
+  let dbp = null;
+  const req = r => new Promise((ok, fail) => { r.onsuccess = () => ok(r.result); r.onerror = () => fail(r.error); });
+  const done = t => new Promise((ok, fail) => { t.oncomplete = () => ok(); t.onerror = () => fail(t.error); t.onabort = () => fail(t.error || new Error('aborted')); });
+  const key = id => `${id}@${version}`;
+  function open() {
+    dbp ||= new Promise((ok, fail) => {
+      if (typeof indexedDB === 'undefined') { fail(new Error('no IndexedDB')); return; }
+      const r = indexedDB.open(name, 1);
+      r.onupgradeneeded = () => { const d = r.result; if (!d.objectStoreNames.contains('clean')) d.createObjectStore('clean'); if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta', { keyPath: 'key' }); };
+      r.onsuccess = () => ok(r.result); r.onerror = () => fail(r.error); r.onblocked = () => fail(new Error('blocked'));
+    }).then(async d => {                                   // drop copies made by an older pipeline
+      try { const all = await req(d.transaction('meta').objectStore('meta').getAll());
+        const stale = all.filter(m => m.v !== version);
+        if (stale.length) { const t = d.transaction(['meta', 'clean'], 'readwrite'); for (const m of stale) { t.objectStore('meta').delete(m.key); t.objectStore('clean').delete(m.key); } await done(t); } } catch (_) {}
+      return d;
+    });
+    dbp.catch(() => { dbp = null; });
+    return dbp;
+  }
+  async function metas() { const d = await open(); return (await req(d.transaction('meta').objectStore('meta').getAll())).filter(m => m.v === version); }
+  return {
+    /** → { pcm: Int16Array, sr } or null. Never throws. */
+    async get(id) {
+      try {
+        const d = await open(), k = key(id), m = await req(d.transaction('meta').objectStore('meta').get(k)); if (!m || m.v !== version) return null;
+        const buf = await req(d.transaction('clean').objectStore('clean').get(k)); if (!(buf instanceof ArrayBuffer)) return null;
+        const t = d.transaction('meta', 'readwrite'); t.objectStore('meta').put({ ...m, lastPlayed: Date.now() }); done(t).catch(() => {});
+        return { pcm: new Int16Array(buf), sr: m.sr };
+      } catch (_) { return null; }
+    },
+    async has(id) { try { const d = await open(); return !!(await req(d.transaction('meta').objectStore('meta').get(key(id)))); } catch (_) { return false; } },
+    /** Store a cleaned song. Returns true if saved. Skips quietly when storage is tight or anything fails. */
+    async put(id, pcm, sr) {
+      try {
+        const bytes = pcm.byteLength;
+        if (bytes > cap) return false;
+        const est = await estimate().catch(() => null);
+        if (est && est.quota && est.quota - (est.usage || 0) < bytes + 50e6) return false;     // keep room for everything else
+        const d = await open(), list = (await metas()).sort((a, b) => a.lastPlayed - b.lastPlayed);
+        let total = list.reduce((a, m) => a + (m.key === key(id) ? 0 : m.bytes), 0);
+        const t = d.transaction(['meta', 'clean'], 'readwrite'), M = t.objectStore('meta'), C = t.objectStore('clean');
+        for (const m of list) { if (total + bytes <= cap) break; if (m.key === key(id)) continue; M.delete(m.key); C.delete(m.key); total -= m.bytes; }   // least recently played first
+        const now = Date.now();
+        C.put(pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + bytes), key(id));
+        M.put({ key: key(id), id, v: version, sr, length: pcm.length, bytes, savedAt: now, lastPlayed: now });
+        await done(t); return true;
+      } catch (_) { return false; }
+    },
+    async info() { try { const l = await metas(); return { songs: l.length, bytes: l.reduce((a, m) => a + m.bytes, 0) }; } catch (_) { return { songs: 0, bytes: 0 }; } },
+    async clear() { try { const d = await open(), t = d.transaction(['meta', 'clean'], 'readwrite'); t.objectStore('meta').clear(); t.objectStore('clean').clear(); await done(t); return true; } catch (_) { return false; } },
+  };
+}
+const isListed = id => { try { return playlists.all().some(l => (l.songs || []).some(s => s.k === 'r' && s.id === id)); } catch (_) { return false; } };
+const weakDevice = () => (navigator.hardwareConcurrency || 4) <= 2 || (navigator.deviceMemory || 4) <= 2;
+/** 16-bit mono WAV (cheap for the browser to decode) as a blob: URL for the <audio> elements. */
+function wavURL(samples, sr) {
+  const n = samples.length, b = new ArrayBuffer(44 + n * 2), v = new DataView(b), i16 = samples instanceof Int16Array;
+  const ws = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+  ws(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); ws(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); ws(36, 'data'); v.setUint32(40, n * 2, true);
+  if (i16) new Int16Array(b, 44).set(samples);
+  else { const out = new Int16Array(b, 44); for (let i = 0; i < n; i++) { const x = Math.max(-1, Math.min(1, samples[i])); out[i] = x < 0 ? x * 32768 : x * 32767; } }
+  return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
+}
+
 // ------------------------------------------------------------------ 78 rpm restoration chain
 // input (stereo) → mono sum → rumble high-pass ×2 → [worklet: de-click + dynamic hiss filter]
 //   → warmth shelf → presence lift → 8 kHz roll-off → gentle compressor → make-up → wet ┐
@@ -295,6 +369,7 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
   function killAudio(t) {              // stop a track but keep the element for re-use
     if (!t || t.el._owner !== t) return;
     stopFade(t.el); t.el.pause(); t.el.removeAttribute('src'); t.el.load(); t.el._owner = null;
+    if (t.blob) { URL.revokeObjectURL(t.blob); t.blob = null; }
   }
 
   async function decideMode(url) {      // once per session; elements can only be wired to WebAudio once
@@ -313,8 +388,72 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
     } catch (_) { mode = 'plain'; for (const el of els) el._gain = null; }
   }
   function el0Volume() { for (const el of els) el.volume = 1; }   // the GainNode does volume from now on
+  // An element playing a pre-cleaned copy bypasses the live chain (never clean twice).
+  function route(el, pre) {
+    if (!el._gain || !chain) return; const want = pre ? 'direct' : 'chain'; if (el._routed === want) return;
+    try { el._gain.disconnect(); } catch (_) {} el._gain.connect(pre ? ctx.destination : chain.input); el._routed = want;
+  }
 
-  async function prepare(myGen) {      // fetch a track and preload it on the idle element
+  // ---- ahead-of-time restoration (Web Worker) + cache of cleaned favourites ----
+  const AOT_MAX_SEC = 360, cache = createAudioCache(), mem = new Map();   // mem: id → { pcm, sr } for the last couple of cleaned records
+  let worker = null, aotBroken = false, jobId = 0; const jobs = new Map(); const aotStats = { fresh: 0, cached: 0, fallbacks: 0, last: null };
+  const canClean = () => mode === 'clean' && settings.restore !== false && !aotBroken && typeof Worker !== 'undefined' && !weakDevice();
+  function getWorker() {
+    if (worker || aotBroken) return worker;
+    try {
+      worker = new Worker(new URL('./restore-offline-worker.js', import.meta.url), { type: 'module' });
+      worker.onmessage = e => { const m = e.data || {}, j = jobs.get(m.id); if (!j) return;
+        if (m.type === 'done') { jobs.delete(m.id); j.ok(m); } else if (m.type === 'error') { jobs.delete(m.id); j.fail(new Error(m.message)); } };
+      worker.onerror = () => { aotBroken = true; for (const j of jobs.values()) j.fail(new Error('worker failed')); jobs.clear(); try { worker.terminate(); } catch (_) {} worker = null; };
+    } catch (_) { aotBroken = true; worker = null; }
+    return worker;
+  }
+  async function processRecord(src) {          // fetch → decode → mono → worker → { pcm Float32, sr }
+    const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 90000);
+    try {
+      const r = await fetch(src, { mode: 'cors', signal: ac.signal }); if (!r.ok) return null;
+      const audio = await ensureCtx().decodeAudioData(await r.arrayBuffer());
+      if (!(audio.duration > 0) || audio.duration > AOT_MAX_SEC) return null;
+      const mono = new Float32Array(audio.length), chs = audio.numberOfChannels;
+      for (let c = 0; c < chs; c++) { const d = audio.getChannelData(c); for (let i = 0; i < d.length; i++) mono[i] += d[i] / chs; }
+      const w = getWorker(); if (!w) return null;
+      const id = ++jobId, res = await new Promise((ok, fail) => { jobs.set(id, { ok, fail }); w.postMessage({ id, pcm: mono, sr: audio.sampleRate }, [mono.buffer]); });
+      aotStats.last = res.stats;
+      return { pcm: res.pcm, sr: audio.sampleRate };
+    } catch (_) { return null; } finally { clearTimeout(timer); }
+  }
+  async function toCacheFormat(pcm, sr) {      // resample to 22.05 kHz mono Int16
+    const len = Math.ceil(pcm.length * CACHE_SR / sr), off = new OfflineAudioContext(1, len, CACHE_SR), b = off.createBuffer(1, pcm.length, sr);
+    b.copyToChannel(pcm, 0); const s = off.createBufferSource(); s.buffer = b; s.connect(off.destination); s.start();
+    const y = (await off.startRendering()).getChannelData(0), out = new Int16Array(y.length);
+    for (let i = 0; i < y.length; i++) { const x = Math.max(-1, Math.min(1, y[i])); out[i] = x < 0 ? x * 32768 : x * 32767; }
+    return out;
+  }
+  async function storeClean(id, res) { try { const i16 = await toCacheFormat(res.pcm, res.sr); return await cache.put(id, i16, CACHE_SR); } catch (_) { return false; } }
+  function remember(id, res) { mem.set(id, res); while (mem.size > 2) mem.delete(mem.keys().next().value); }
+  /** A cleaned copy for this record: from the cache (instant), or freshly cleaned. → { url, from } | null */
+  async function cleanedURL(id, src, { process = true } = {}) {
+    if (settings.restore === false) return null;
+    if (id) { const hit = await cache.get(id); if (hit) { aotStats.cached++; return { url: wavURL(hit.pcm, hit.sr), from: 'cache' }; } }
+    if (!process || !canClean()) return null;
+    const res = await processRecord(src); if (!res) { aotStats.fallbacks++; return null; }
+    aotStats.fresh++;
+    if (id) { remember(id, res); if (isListed(id)) storeClean(id, res); }
+    return { url: wavURL(res.pcm, res.sr), from: 'fresh' };
+  }
+  /** Save the cleaned copy of a record that has just been kept / added to a playlist (if we still have it). */
+  async function cacheIfKept(ref) {
+    const id = ref && ref.k === 'r' ? ref.id : null; if (!id || !mem.has(id) || !isListed(id)) return false;
+    if (await cache.has(id)) return true; return storeClean(id, mem.get(id));
+  }
+  function useCleaned(t, res) {                 // swap a not-yet-started track over to its cleaned copy
+    if (!res) return;
+    if (t.started || t.el._owner !== t || settings.restore === false) { URL.revokeObjectURL(res.url); return; }
+    if (t.blob) URL.revokeObjectURL(t.blob);
+    t.orig ||= t.src; t.blob = res.url; t.src = res.url; t.aot = res.from; load(t.el, t);
+  }
+
+  async function prepare(myGen, ahead = false) {      // fetch a track and preload it on the idle element
     const st = station();
     const r = await archive.nextTrack(st);
     if (myGen !== gen) return null;
@@ -323,6 +462,8 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
     if (nxt && nxt.el === el) nxt = null;            // replaced by this one
     const t = { el, src: r.src, info: r.info, prefetch: false, out: false };
     load(el, t);
+    // the next record has minutes until it plays: clean it ahead of time (or take the saved copy)
+    if (ahead) cleanedURL(r.info.id, r.src).then(res => useCleaned(t, res)).catch(() => {});
     return t;
   }
 
@@ -335,15 +476,17 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
     const old = cur; cur = t;
     if (old && old !== t) fade(old.el, 0, FADE_MS, () => killAudio(old));
     const a = t.el;
+    t.started = true; route(a, !!t.aot);
     a.onplaying = () => { if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); if (cur === t) { failures = 0; if (pl) pl.fails = 0; setState('playing'); } };
     a.onerror = () => { if (cur !== t || a._owner !== t) return; if (pl) { pl.fails++; plNext(myGen); return; } failures++; if (failures >= 3) goOffline(myGen); else startLive(myGen); };
     a.onloadedmetadata = () => { if (!pl && cur === t && Number.isFinite(a.duration) && (a.duration < MIN_SEC || a.duration > MAX_SEC + 30)) startLive(myGen); };
-    a.onended = () => { if (cur === t) (pl ? plNext(myGen) : startLive(myGen)); };
+    a.onended = () => { if (t.info.id) cacheIfKept({ k: 'r', id: t.info.id }).catch(() => {}); if (cur === t) (pl ? plNext(myGen) : startLive(myGen)); };
     a.ontimeupdate = () => {           // preload the next record half-way through; fade out at the very end
       if (cur !== t || !Number.isFinite(a.duration)) return;
+      if (pl && !t.prefetch && a.currentTime > a.duration / 2) { t.prefetch = true; warmNext(myGen); }   // clean the next playlist record ahead
       if (!pl && !nxt && !t.prefetch && a.currentTime > a.duration / 2) {
         t.prefetch = true;
-        prepare(myGen).then(n => { if (n && myGen === gen && cur === t && n.el !== t.el) nxt = n; else if (n && n !== cur) killAudio(n); }).catch(() => {});
+        prepare(myGen, true).then(n => { if (n && myGen === gen && cur === t && n.el !== t.el) nxt = n; else if (n && n !== cur) killAudio(n); }).catch(() => {});
       }
       if (!t.out && a.duration - a.currentTime < FADE_MS / 1000) { t.out = true; fade(a, 0, FADE_MS); }
     };
@@ -385,11 +528,21 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
       if (myGen !== gen || !pl) return;
       songs?.stop(1.5); boxFade(0, 300);
       const el = idleEl(); if (nxt && nxt.el === el) nxt = null;
-      const t = { el, src: r.src, info: r.info, prefetch: true, out: false };
+      const t = { el, src: r.src, info: r.info, prefetch: false, out: false };
+      const hit = settings.restore !== false ? await cleanedURL(ref.id, r.src, { process: false }) : null;   // saved cleaned copy?
+      if (myGen !== gen || !pl) { if (hit) URL.revokeObjectURL(hit.url); return; }
+      if (hit) { t.orig = r.src; t.blob = hit.url; t.src = hit.url; t.aot = 'cache'; }
       load(el, t); startLive(myGen, t);
+      if (!hit && canClean() && !mem.has(ref.id)) cleanedURL(ref.id, r.src).then(res => res && URL.revokeObjectURL(res.url)).catch(() => {});   // clean + save for next time
     } catch (_) { if (myGen === gen && pl) { pl.fails++; plNext(myGen); } }
   }
 
+  async function warmNext(myGen) {               // playlist: get the next record's cleaned copy ready (and saved)
+    if (!pl || !canClean()) return;
+    const ref = pl.refs[pl.i % pl.refs.length]; if (!ref || ref.k !== 'r' || mem.has(ref.id) || await cache.has(ref.id)) return;
+    const r = await archive.resolve({ identifier: ref.id, title: ref.title, creator: ref.artist, year: ref.year }, { id: 'playlist' }).catch(() => null);
+    if (r && myGen === gen) cleanedURL(ref.id, r.src).then(res => res && URL.revokeObjectURL(res.url)).catch(() => {});
+  }
   function goOffline(myGen) {
     if (myGen !== gen) return;
     fallback = true; setState('offline'); retryAfter = box.count + 1;   // play one whole tune before retrying
@@ -409,15 +562,16 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
     if (!isFallback) setState('playing');
   }
 
-  function start() {
+  function start(advance = false) {           // advance: '⏭ Next song' moves on to the next song of the series
     const myGen = ++gen; failures = 0; fallback = false; pl = null;
+    const nextN = advance && songs && songs.series ? songs.series.n + 1 : 0;
     box.stop(); boxFade(0, 300); songs?.stop(1.5);
     if (station().id.startsWith('mood-')) {          // composed songs: same seed → same song, endless variations
       if (cur) { const c = cur; cur = null; fade(c.el, 0, FADE_MS, () => killAudio(c)); }
       killAudio(nxt); nxt = null; ensureCtx();
       songs ||= createSongPlayer(ctx, boxGain);
       const st = station();
-      songs.playSeries({ seed: songCtx.seed, mood: st.id.slice(5), onSong: song => { nowRef = { k: 'c', seed: song.seed, mood: song.mood, title: song.title };
+      songs.playSeries({ seed: songCtx.seed, mood: st.id.slice(5), n: nextN, onSong: song => { nowRef = { k: 'c', seed: song.seed, mood: song.mood, title: song.title };
         onTrack({ title: song.title, artist: 'Composed on this device', year: null, url: null, image: null, station: st.id }); } });
       boxFade(volume * 0.9, FADE_MS); setState('playing');
     } else if (station().id === 'musicbox') {
@@ -443,7 +597,7 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
       for (const t of [cur, nxt]) if (t) { const x = t; fade(x.el, 0, 600, () => killAudio(x)); }
       cur = null; nxt = null; setState('paused');
     },
-    next() { if (!playing) return; unlock(); if (pl) { const g = ++gen; songs?.stop(1.2); plNext(g); } else start(); },
+    next() { if (!playing) return; unlock(); if (pl) { const g = ++gen; songs?.stop(1.2); plNext(g); } else start(station().id.startsWith('mood-')); },
     /** Play a list of song refs ({k:'c',seed,mood} / {k:'r',id,...}) in order from startIndex, looping. Call from a tap. */
     playPlaylist(refs, startIndex = 0) {
       const list = (Array.isArray(refs) ? refs : []).filter(r => r && ((r.k === 'c' && Number.isFinite(r.seed)) || (r.k === 'r' && typeof r.id === 'string')));
@@ -465,9 +619,16 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
     setRestore(on) {
       settings.restore = !!on; saveSettings(settings);
       if (chain) chain.setEnabled(!!on);
+      if (!on && nxt && nxt.aot && !nxt.started && nxt.orig) { URL.revokeObjectURL(nxt.blob); nxt.blob = null; nxt.src = nxt.orig; nxt.aot = false; load(nxt.el, nxt); }
     },
     get restore() { return settings.restore !== false; },
-    get cleanMode() { return mode; },              // 'clean' | 'plain' | null (not decided yet)
+    get cleanMode() { return mode; },
+    /** Saved cleaned songs (kept / playlist records): { songs, bytes }. */
+    cacheInfo: () => cache.info(),
+    clearCache: () => cache.clear(),
+    /** Call after a song is kept / added to a playlist: saves its cleaned copy if one is in memory. */
+    cacheIfKept: ref => cacheIfKept(ref),
+    get aotStats() { return { ...aotStats, playing: cur ? (cur.aot || 'live') : null }; },              // 'clean' | 'plain' | null (not decided yet)
     /** Each puzzle gets its own song: the seed comes from the puzzle. */
     setContext({ seed } = {}) { if (Number.isFinite(seed)) songCtx.seed = seed >>> 0; if (playing && !pl && station().id.startsWith('mood-')) start(); },   // never interrupts a playlist
     get volume() { return volume; },
