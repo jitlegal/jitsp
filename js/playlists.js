@@ -154,9 +154,11 @@ export function openPlaylistsDialog(ui) {
       } }, kept ? '♥ Kept' : '♡ Keep this song'));
   }
 
-  function play(l, i) {
+  function play(l, i, shuffled = false) {
     if (!music || !music.playPlaylist) return;
-    if (music.playPlaylist(l.songs, i)) { toast(`🎶 Playing ${l.name}`); announce(`Playing ${l.name}.`); }
+    let songs = l.songs;
+    if (shuffled) { songs = songs.slice(); for (let k = songs.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [songs[k], songs[j]] = [songs[j], songs[k]]; } }
+    if (music.playPlaylist(songs, shuffled ? 0 : i)) { const how = shuffled ? `${l.name}, shuffled` : l.name; toast(`🎶 Playing ${how}`); announce(`Playing ${how}.`); }
   }
 
   function open(id, focusIndex) {
@@ -166,7 +168,8 @@ export function openPlaylistsDialog(ui) {
     dialog(
       h('h2', {}, l.name),
       btns(h('button', { class: 'secondary', onclick: home }, '← All playlists'),
-        l.songs.length ? h('button', { class: 'primary', onclick: () => play(l, 0) }, '▶ Play all') : null),
+        l.songs.length ? h('button', { class: 'primary', onclick: () => play(l, 0) }, '▶ Play all') : null,
+        l.songs.length > 1 ? h('button', { class: 'secondary', 'aria-label': `Shuffle ${l.name}`, onclick: () => play(l, 0, true) }, '🔀 Shuffle') : null),
       cur && !inList && !isFav ? h('button', { class: 'secondary', style: 'width:100%;margin-top:10px', onclick: () => {
         if (playlists.add(id, cur)) announce(`Added ${cur.title}.`); open(id);
       } }, `＋ Add “${cur.title}”`) : null,
