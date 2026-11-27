@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Composer test</title>
+<style>body{margin:0;background:#111;color:#ddd;font:14px sans-serif}canvas{display:block}</style></head>
+<body><canvas id="cv" width="1500" height="1280"></canvas>
+<script type="module">
+import { MOODS, composeSong, createSongPlayer, songTitle } from './js/compose.js';
+const SR = 44100, SECS = +(new URLSearchParams(location.search).get('secs') || 60);
+
+async function render(seed, mood, secs = SECS) {
+  const ctx = new OfflineAudioContext(2, SR * secs, SR);
+  const song = composeSong(seed, mood);
+  const p = createSongPlayer(ctx, ctx.destination, { offline: true, reverb: !new URLSearchParams(location.search).has('noreverb') });
+  const t0 = performance.now(); p.renderAll(song, 0.05, secs);
+  const buf = await ctx.startRendering();
+  return { song, buf, ms: performance.now() - t0 };
+}
+function hash(arr) { let h = 2166136261; const u = new Uint32Array(arr.buffer, arr.byteOffset, arr.length); for (let i = 0; i < u.length; i += 7) { h ^= u[i]; h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); }
+const hashSong = s => { let h = 2166136261; for (const c of JSON.stringify(s.events)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
+function biquad(x, b0, b1, b2, a1, a2) { const y = new Float32Array(x.length); let x1 = 0, x2 = 0, y1 = 0, y2 = 0; for (let i = 0; i < x.length; i++) { const v = b0 * x[i] + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2; x2 = x1; x1 = x[i]; y2 = y1; y1 = v; y[i] = v; } return y; }
+function rbj(type, f, Q, dB) { const A = Math.pow(10, dB / 40), w = 2 * Math.PI * f / SR, c = Math.cos(w), s = Math.sin(w), al = s / (2 * Q); let b0, b1, b2, a0, a1, a2;
+  if (type === 'hp') { b0 = (1 + c) / 2; b1 = -(1 + c); b2 = b0; a0 = 1 + al; a1 = -2 * c; a2 = 1 - al; }
+  else { const sq = 2 * Math.sqrt(A) * al; b0 = A * ((A + 1) + (A - 1) * c + sq); b1 = -2 * A * ((A - 1) + (A + 1) * c); b2 = A * ((A + 1) + (A - 1) * c - sq); a0 = (A + 1) - (A - 1) * c + sq; a1 = 2 * ((A - 1) - (A + 1) * c); a2 = (A + 1) - (A - 1) * c - sq; }
+  return [b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0]; }
+function lufsish(L, Rr) {                                 // K-weighting approximation + 400 ms gated blocks (BS.1770-style)
+  const k = x => biquad(biquad(x, ...rbj('shelf', 1500, 0.707, 4)), ...rbj('hp', 60, 0.5, 0));
+  const a = k(L), b = k(Rr), blk = Math.floor(0.4 * SR), hop = Math.floor(0.1 * SR), ms = [];
+  for (let s = 0; s + blk <= a.length; s += hop) { let e = 0; for (let i = s; i < s + blk; i++) e += a[i] * a[i] + b[i] * b[i]; ms.push(e / blk); }
+  const L1 = v => -0.691 + 10 * Math.log10(v + 1e-20);
+  let g = ms.filter(v => L1(v) > -70); const rel = L1(g.reduce((x, y) => x + y, 0) / g.length) - 10; g = g.filter(v => L1(v) > rel);
+  return +L1(g.reduce((x, y) => x + y, 0) / g.length).toFixed(1); }
+function fft(re, im) { const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) { let b = n >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; } }
+  for (let len = 2; len <= n; len <<= 1) { const a = -2 * Math.PI / len, wr = Math.cos(a), wi = Math.sin(a);
+    for (let i = 0; i < n; i += len) { let cr = 1, ci = 0; for (let k = 0; k < len / 2; k++) { const h = i + k + len / 2, vr = re[h] * cr - im[h] * ci, vi = re[h] * ci + im[h] * cr;
+      re[h] = re[i + k] - vr; im[h] = im[i + k] - vi; re[i + k] += vr; im[i + k] += vi; const nr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = nr; } } } }
+function bands(x) { const F = 2048, acc = new Float64Array(F / 2); for (let s = 0; s + F <= x.length; s += F) { const re = new Float64Array(F), im = new Float64Array(F);
+  for (let i = 0; i < F; i++) re[i] = x[s + i] * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / F)); fft(re, im); for (let k = 0; k < F / 2; k++) acc[k] += re[k] * re[k] + im[k] * im[k]; }
+  const sum = (lo, hi) => { let t = 0; for (let k = Math.ceil(lo * F / SR); k < Math.min(F / 2, hi * F / SR); k++) t += acc[k]; return t; };
+  const tot = sum(20, 22050); return { above8k_dB: +(10 * Math.log10(sum(8000, 22050) / tot)).toFixed(1), above5k_dB: +(10 * Math.log10(sum(5000, 22050) / tot)).toFixed(1) }; }
+function wav(L, Rr) { const n = L.length, b = new ArrayBuffer(44 + n * 4), v = new DataView(b), ws = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  ws(0, 'RIFF'); v.setUint32(4, 36 + n * 4, true); ws(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 2, true); v.setUint32(24, SR, true); v.setUint32(28, SR * 4, true); v.setUint16(32, 4, true); v.setUint16(34, 16, true); ws(36, 'data'); v.setUint32(40, n * 4, true);
+  let o = 44; for (let i = 0; i < n; i++) { v.setInt16(o, Math.max(-1, Math.min(1, L[i])) * 32767, true); v.setInt16(o + 2, Math.max(-1, Math.min(1, Rr[i])) * 32767, true); o += 4; }
+  let s = ''; const u = new Uint8Array(b); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(s); }
+
+const report = {}, wavs = {}, g = document.getElementById('cv').getContext('2d');
+for (const [row, { id }] of MOODS.entries()) {
+  const seed = 20261127;
+  const a = await render(seed, id), b = await render(seed, id), c = await render(seed + 1, id);
+  const L = a.buf.getChannelData(0), Rr = a.buf.getChannelData(1);
+  let peak = 0, ss = 0; for (let i = 0; i < L.length; i++) { peak = Math.max(peak, Math.abs(L[i]), Math.abs(Rr[i])); ss += L[i] * L[i] + Rr[i] * Rr[i]; }
+  const corrLR = (() => { let x = 0, y = 0, z = 0; for (let i = 0; i < L.length; i++) { x += L[i] * Rr[i]; y += L[i] * L[i]; z += Rr[i] * Rr[i]; } return +(x / Math.sqrt(y * z)).toFixed(3); })();
+  report[id] = {
+    title: a.song.title, bpm: a.song.bpm, meter: a.song.meter, form: a.song.form, passes: a.song.passes, songLength_s: +a.song.length.toFixed(1), events: a.song.events.length,
+    peak_dBFS: +(20 * Math.log10(peak)).toFixed(2), rms_dBFS: +(10 * Math.log10(ss / (2 * L.length))).toFixed(1), lufs_ish: lufsish(L, Rr), ...bands(L), stereoCorrelation: corrLR,
+    render_ms_for_60s: Math.round(a.ms), realtime_x: +(SECS * 1000 / a.ms).toFixed(1),
+    deterministic_audio_maxDiff_dBFS: (() => { const B = b.buf.getChannelData(0); let mx = 0; for (let i = 0; i < L.length; i++) mx = Math.max(mx, Math.abs(L[i] - B[i])); return mx ? +(20 * Math.log10(mx)).toFixed(1) : '-inf (bit-exact)'; })(), deterministic_score: hashSong(a.song) === hashSong(b.song),
+    otherSeedDiffers: hash(L) !== hash(c.buf.getChannelData(0)) && hashSong(a.song) !== hashSong(c.song), otherSeedTitle: c.song.title,
+  };
+  wavs[id] = wav(L, Rr);
+  // spectrogram 0–12 kHz + waveform
+  const y0 = row * 320, W = 1500, FR = 1024, img = g.createImageData(W, 240);
+  for (let col = 0; col < W; col++) { const s = Math.floor(col / W * (L.length - FR)), re = new Float64Array(FR), im = new Float64Array(FR);
+    for (let i = 0; i < FR; i++) re[i] = L[s + i] * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / FR)); fft(re, im);
+    for (let py = 0; py < 240; py++) { const k = Math.floor((1 - py / 240) * (12000 / SR * FR)) + 1, db = 10 * Math.log10(re[k] * re[k] + im[k] * im[k] + 1e-12), v = Math.max(0, Math.min(1, (db + 70) / 80)), o = (py * W + col) * 4;
+      img.data[o] = 255 * Math.min(1, v * 1.6); img.data[o + 1] = 255 * Math.max(0, v * 1.6 - 0.5); img.data[o + 2] = 255 * Math.max(0, 1 - v * 2) * v * 2; img.data[o + 3] = 255; } }
+  g.putImageData(img, 0, y0 + 20); g.fillStyle = '#000'; g.fillRect(0, y0 + 260, W, 60); g.strokeStyle = '#6cf'; g.beginPath();
+  for (let col = 0; col < W; col++) { let mx = 0; const a0 = Math.floor(col / W * L.length), a1 = Math.floor((col + 1) / W * L.length); for (let i = a0; i < a1; i++) mx = Math.max(mx, Math.abs(L[i])); g.moveTo(col, y0 + 290 - mx * 28); g.lineTo(col, y0 + 290 + mx * 28); }
+  g.stroke(); g.fillStyle = '#fff'; g.font = '16px sans-serif';
+  g.fillText(`${id}: “${a.song.title}” — ${a.song.bpm} bpm, ${a.song.meter}/4, ${a.song.form}×${a.song.passes}, ${a.song.length.toFixed(0)} s song (first ${SECS} s shown, 0–12 kHz)`, 8, y0 + 15);
+}
+window.__report = report; window.__wavs = wavs;
+</script></body></html>
