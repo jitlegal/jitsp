@@ -332,11 +332,12 @@ export class Puzzle {
   // two fingers: pinch to zoom and pan · mouse wheel: zoom · trackpad two-finger scroll: pan
   _pt(e){ const r = this.cv.getBoundingClientRect(); return [e.clientX-r.left, e.clientY-r.top]; }
   _w(x,y){ const c = this.cam; return [(x-c.ox)/c.s, (y-c.oy)/c.s]; }
-  _pick(x,y){
+  _pick(x,y, exact = false){
     const [wx,wy] = this._w(x,y), {cw,ch,pad} = this.board, {ctx} = this; ctx.setTransform(1,0,0,1,0,0);
     for(let i=this.pieces.length-1;i>=0;i--){ const pc = this.pieces[i];
       if(pc.placed || pc.anim || wx < pc.x-pad || wy < pc.y-pad || wx > pc.x+cw+pad || wy > pc.y+ch+pad) continue;
       if(ctx.isPointInPath(pc.path, wx-pc.x, wy-pc.y)) return pc; }
+    if(exact) return null;                      // drags need a real touch on a piece; only taps get the near-miss help
     let best = null, bd = Math.max(Math.min(cw,ch)*0.7, 34/this.cam.s);          // forgiving near-miss for unsteady fingers
     for(const pc of this.pieces){ if(pc.placed || pc.anim) continue;
       const d = Math.hypot(wx-(pc.x+cw/2), wy-(pc.y+ch/2)); if(d<bd){ bd=d; best=pc; } }
@@ -362,7 +363,7 @@ export class Puzzle {
         return;
       }
       if(ptrs.size > 1) return;                                      // extra fingers on small puzzles are ignored
-      const pc = this._pick(...p);
+      const pc = this._pick(...p, this.zoomable);
       const slop = e.pointerType === 'mouse' ? 6 : 16;              // a wobbly finger-tap is still a tap
       if(pc){ g = { type:'piece', id:e.pointerId, pc, start:p, moved:false, slop }; const [wx,wy] = this._w(...p); pc.dx = wx-pc.x; pc.dy = wy-pc.y; }
       else g = { type:'table', id:e.pointerId, start:p, cam:{...this.cam}, moved:false, slop };
@@ -416,6 +417,7 @@ export class Puzzle {
           lastTap = null; const [wx,wy] = this._w(...p); this._camTo(this.cam.s*2, wx, wy, 250); return;   // double-tap: zoom in there
         }
         lastTap = { t: now, p };
+        if(!this.sel && this.zoomable){ const near = this._pick(...p); if(near){ this.sel = near; this._toTop(near); this.dirty = true; this._raf(); return; } }   // forgiving tap
         if(this.sel && !stale(this.sel)){ const pc = this.sel, [wx,wy] = this._w(...p); this.sel = null;   // tap a spot: move the chosen piece there
           this._glide(pc, wx-this.board.cw/2, wy-this.board.ch/2, 240, () => this._near(pc) ? this._lock(pc) : this._changed()); }
       }
