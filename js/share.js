@@ -9,8 +9,17 @@ const unutf8 = s => new TextDecoder().decode(Uint8Array.from(s, c => c.charCodeA
 export const QR_MAX = 900;          // longer links make QR codes too dense to scan from a screen
 
 /** recipe: {src:{t:'scene',id,s}|{t:'pic',id}|{t:'album',u}|{t:'img'}, n, k, f?, m?}; img: dataURL for t:'img' */
+// Links and QR codes must point at the real public site, never at this device (localhost / 127.0.0.1 / file:).
+// Set <meta name="app-url" content="https://your-site.netlify.app/"> to force the public address.
+const LOOPBACK = /^(localhost|127(\.\d+){3}|0\.0\.0\.0|\[?::1\]?|.*\.local)$/i;
+export function publicBase(){
+  const m = document.querySelector('meta[name="app-url"]')?.content;
+  if(m && /^https:\/\/[^/\s]+\//.test(m)) return m.split('#')[0].split('?')[0];
+  if(location.protocol !== 'https:' || LOOPBACK.test(location.hostname)) return null;
+  return location.origin + location.pathname;
+}
 export function makeLink(recipe, img){
-  const base = location.href.split('#')[0];
+  const base = publicBase() || location.href.split('#')[0].split('?')[0];
   let h = 'p=' + b64url(utf8(JSON.stringify(recipe)));
   if(img){ const [head, data] = img.split(','); h += '&y=' + (head.includes('webp')?'w':'j') + '&i=' + data.replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
   return base + '#' + h;
@@ -46,6 +55,7 @@ export function photoForLink(source){
 /** Draw a QR code for text onto a canvas (needs the qrcode-generator CDN script). */
 export function qrCanvas(text, px = 320){
   if(typeof qrcode !== 'function' || text.length > QR_MAX) return null;
+  try{ const u = new URL(text); if(u.protocol !== 'https:' || LOOPBACK.test(u.hostname)) return null; }catch(_){ return null; }   // never a QR to this device
   const q = qrcode(0, 'M'); q.addData(text); q.make();
   const n = q.getModuleCount(), quiet = 3, cell = Math.floor(px/(n+quiet*2)) || 1, size = cell*(n+quiet*2);
   const c = document.createElement('canvas'); c.width = c.height = size;

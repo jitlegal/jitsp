@@ -2,7 +2,7 @@
 // everything shared by all games. Each game is a plug-in in js/games/ (see GAMES.md).
 import { gridFor } from './engine.js';
 import { settings, current, album, streak, today, LS } from './store.js';
-import { makeLink, readLink, photoForLink, qrCanvas, shareLink, shareImage, copy, smsHref, mailHref, postcard, QR_MAX } from './share.js';
+import { publicBase, makeLink, readLink, photoForLink, qrCanvas, shareLink, shareImage, copy, smsHref, mailHref, postcard, QR_MAX } from './share.js';
 import { SCENES, paintScene, sceneName, pickScene } from './scenes.js';
 import { createMusic, STATIONS } from './music.js';
 import { exportBackup, importBackup } from './backup.js';
@@ -232,6 +232,7 @@ function shareDialog(g, done){
   const noteIn = h('input', { type:'text', placeholder:'e.g. Thinking of you!', maxLength: 120 });
   const qrSlot = h('div'), sms = h('a', {}, '💬 Text message'), mail = h('a', {}, '✉️ Email');
   let link = '';
+  if(!publicBase()) toast('Sharing works from the app’s web address, not from this computer’s test copy.', 6000);
   const update = () => {
     const name = nameIn.value.trim(), note = noteIn.value.trim();
     const { f, m, ...base } = g.recipe;
