@@ -199,3 +199,9 @@ h2.section{margin:24px 2px 12px;font-size:clamp(21px,5.6vw,26px)}
 .daily-row b{display:block;font-size:20px}
 .daily-row .primary{grid-column:1/-1;width:100%}
 @media (min-width:560px){ .daily-row{grid-template-columns:auto minmax(0,1fr) auto} .daily-row .primary{grid-column:auto;width:auto;white-space:nowrap} }
+
+/* gentle "add to home screen" reminder (iPhone/iPad in Safari only) */
+.keep-safe{border:3px dashed var(--gold);padding:16px}
+.keep-safe h2{font:600 clamp(20px,5.2vw,24px)/1.2 var(--title);margin:0 0 6px}
+.keep-safe p{margin:0 0 10px}
+.keep-safe button{width:100%}

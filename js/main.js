@@ -493,6 +493,7 @@ $('#openSettings').onclick = () => {
     toggle('sounds', true, false, 'Click sounds when something fits'),
     h('div', { class:'switch' }, h('span', {}, 'Music'), h('button', { onclick: musicDialog }, 'Choose…')),
     h('div', { class:'switch' }, h('span', {}, 'Back up or move my games'), h('button', { onclick: backupDialog }, 'Open…')),
+    isIOS && !installed() ? h('div', { class:'card keep-safe', style:'margin-top:14px' }, h('h3', {}, 'Keep everything safe'), h('p', {}, 'Safari may clear saved games after a week away. Add this app to your Home Screen to keep your games, scrapbook and songs: tap the Share button, then “Add to Home Screen”.')) : null,
     h('details', { style:'margin-top:16px' }, h('summary', { style:'font-weight:700;cursor:pointer;min-height:44px' }, 'Accessibility'),
       h('p', {}, 'Made to work with screen readers (VoiceOver, TalkBack, NVDA), a keyboard alone, browser zoom up to 400%, and the larger-text, high-contrast and less-movement choices above. Solitaire can be played fully by keyboard or screen reader. Jigsaw puzzles are a picture game, so they need sight, but every control has a spoken name and pieces can be moved with the arrow keys.')),
     h('p', { class:'muted', style:'margin-top:18px' }, 'Your games and photos stay on this device. Shared photos travel inside the link itself. Surprise photos come from Lorem Picsum (Unsplash photographers); music from the Internet Archive.'));
@@ -572,6 +573,13 @@ function checkBackupLink(){
   return true;
 }
 
+// ---------------- keeping saved data safe ----------------
+// Safari can clear a website's storage after ~7 days unused unless it's on the Home Screen.
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const installed = () => navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+navigator.storage?.persist?.().catch(() => {});                // ask the browser to keep our data (honoured by Chrome/Android)
+$('#keepSafeOk').onclick = () => { LS.set('jig.keepSafeSeen', 1); $('#keepSafe').classList.add('hidden'); $('#pickHeading').focus(); };
+
 // ---------------- home ----------------
 async function refreshHome(){
   const { name } = settings.get(), hr = new Date().getHours();
@@ -584,6 +592,7 @@ async function refreshHome(){
   $('#streakText').textContent = done ? `✓ Done today${st.count > 1 ? ` — 🔥 ${st.count} days in a row` : ''}. A new one arrives tomorrow.`
     : st.count > 0 ? `🔥 ${st.count} day${st.count>1?'s':''} in a row — keep it going!` : 'A new painted picture every day.';
   $('#todayBtn').textContent = done ? 'Play it again' : 'Start today’s puzzle';
+  $('#keepSafe').classList.toggle('hidden', !(isIOS && !installed() && !LS.get('jig.keepSafeSeen') && (current.get() || (await album.all()).length)));
   const dailies = DAILY.map(getGame).filter(Boolean);
   $('#dealCard').classList.toggle('hidden', !dailies.length);
   $('#dailyRows').replaceChildren(...dailies.map(g => { const st = gameStreak(g.id), s = st.get(), done = st.doneToday();
