@@ -10,13 +10,7 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<script>
-  // Apply look-and-feel settings before anything paints (no flash): text size, contrast, motion.
-  try{ const s = JSON.parse(localStorage.getItem('jig.settings') || '{}'), d = document.documentElement;
-    if(s.textScale) d.style.setProperty('--ui-zoom', s.textScale);
-    if(s.contrast === 'high') d.dataset.contrast = 'high';
-    if(s.motion === 'reduce' || matchMedia('(prefers-reduced-motion: reduce)').matches) d.dataset.motion = 'reduce'; }catch(_){}
-</script>
+<script src="js/look.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Fraunces:opsz,wght@9..144,600&display=swap" rel="stylesheet">
@@ -57,6 +51,12 @@
     </div>
   </section>
 
+  <section id="dealCard" class="card deal hidden" aria-labelledby="dealTitle">
+    <span class="deal-emoji" aria-hidden="true">🃏</span>
+    <div><h2 id="dealTitle">Today's Solitaire deal</h2><p id="dealText" class="muted">The same winnable deal for everyone today.</p></div>
+    <button class="primary" id="dealBtn">Deal me in</button>
+  </section>
+
   <h2 class="section" id="pickHeading" tabindex="-1">Jigsaw puzzles</h2>
   <section class="tiles" aria-labelledby="pickHeading">
     <button class="tile" id="photoBtn"><span aria-hidden="true">📷</span>My own photo</button>
@@ -80,6 +80,7 @@
     <button id="undoBtn" class="hidden" aria-label="Undo"><span aria-hidden="true">↩️</span><span class="lbl" aria-hidden="true"> Undo</span></button>
     <button id="peekBtn" class="hidden" aria-pressed="false" aria-label="Show picture"><span aria-hidden="true">👀</span><span class="lbl" aria-hidden="true"> Show picture</span></button>
     <button id="tidyBtn" class="hidden" aria-label="Tidy the pieces"><span aria-hidden="true">🧹</span><span class="lbl" aria-hidden="true"> Tidy</span></button>
+    <button id="edgesBtn" class="hidden" aria-pressed="false" aria-label="Show only edge pieces"><span aria-hidden="true">🔲</span><span class="lbl" aria-hidden="true"> Edges</span></button>
     <button id="helpBtn" class="gold" aria-label="Help me"><span aria-hidden="true">💡</span><span class="lbl" aria-hidden="true"> Help me</span></button>
     <button id="zoomOut" class="zoom hidden" aria-label="Zoom out"><span aria-hidden="true">➖</span></button>
     <button id="zoomIn" class="zoom hidden" aria-label="Zoom in"><span aria-hidden="true">➕</span></button>

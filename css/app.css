@@ -179,3 +179,13 @@ h2.section{margin:24px 2px 12px;font-size:clamp(21px,5.6vw,26px)}
 }
 @media (min-width:1000px){ .tiles{grid-template-columns:repeat(4,minmax(0,1fr))} }
 :root[data-contrast=high] .round{border:3px solid #000}
+
+/* today's Solitaire deal */
+.deal{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 14px;align-items:center;padding:14px 16px}
+.deal h2{font:600 clamp(21px,5.4vw,26px)/1.15 var(--title);margin:0}
+.deal p{margin:2px 0 0}
+.deal-emoji{font-size:44px;line-height:1}
+.deal .primary{grid-column:1/-1;width:100%}
+@media (min-width:560px){ .deal{grid-template-columns:auto minmax(0,1fr) auto} .deal .primary{grid-column:auto;width:auto;white-space:nowrap} }
+/* keep the whole toolbar on screen when big-puzzle buttons appear (spoken names stay) */
+@media (max-width:1180px){ #peekBtn .lbl,#tidyBtn .lbl,#edgesBtn .lbl,#seeAll .lbl,#undoBtn .lbl{display:none} }

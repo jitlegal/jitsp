@@ -56,7 +56,11 @@ export default {
       async load(recipe, { image, state }){
         const { rows, cols } = gridFor(recipe.n, image.width/image.height);
         // saved state: {v:2, p:{id:[bx,by,placed]}} — v1 (older saves) keeps placed pieces, re-lays loose ones
-        const p = state && typeof state === 'object' ? (state.p || null) : null;
+        let p = state && typeof state === 'object' && state.p && typeof state.p === 'object' ? state.p : null;
+        if(p){ const clean = {}, n = recipe.n * 1.2 + 10;                      // never trust saved positions blindly
+          for(const [id, v] of Object.entries(p)){ if(Object.keys(clean).length > n) break;
+            if(Array.isArray(v) && Number.isFinite(+v[0]) && Number.isFinite(+v[1])) clean[id] = [Math.min(7, Math.max(-6, +v[0])), Math.min(7, Math.max(-6, +v[1])), v[2] ? 1 : 0]; }
+          p = Object.keys(clean).length ? clean : null; }
         engine.load(image, { rows, cols, shapeSeed: recipe.k, state: p || undefined, legacy: !!p && state.v !== 2 });
       },
       state: () => ({ v:2, p: engine.state() }),
@@ -65,6 +69,7 @@ export default {
       help: () => engine.help(),
       tidy: () => engine.tidy(),
       setPeek: on => engine.setPeek(on),
+      setFilter: f => engine.setFilter(f), get filter(){ return engine.filter; }, get edgesUseful(){ return engine.pieces.length >= 24; },
       get peek(){ return engine.peek; },
       zoomIn: () => engine.zoomIn(), zoomOut: () => engine.zoomOut(), showAll: () => engine.showAll(),
       resize: () => engine.resize(),

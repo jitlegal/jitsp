@@ -33,6 +33,7 @@ export class Puzzle {
     this.sel = null; this.drag = null; this.done = false; this.avoid = null;
     this.cam = {s:1, ox:0, oy:0}; this.layerCam = null; this.dirty = true;
     this.sprites = new Map(); this.spriteScale = 0; this.spritePx = 0;   // piece pictures cached at the current zoom
+    this.filter = null;                 // 'edges' → only edge pieces are shown at full strength and can be picked
     this.gen = 0;                       // bumps on every load: animations from an older puzzle stop themselves
     this._bind();
   }
@@ -42,7 +43,7 @@ export class Puzzle {
   /** image: canvas/img; opts: {rows, cols, shapeSeed, state?:{id:[bx,by,placed]} (board-relative)} */
   load(image, {rows, cols, shapeSeed, state, legacy}){
     this.img = image; this.rows = rows; this.cols = cols; this.shapeSeed = shapeSeed;
-    this.done = false; this.sel = null; this.drag = null; this.peek = false; this._busy = false; this.gen++;
+    this.done = false; this.sel = null; this.drag = null; this.peek = false; this._busy = false; this.gen++; this.filter = null;
     this._resetGesture?.();
     const R = rng(shapeSeed);
     const H = [...Array(rows-1)].map(()=>[...Array(cols)].map(()=>R()<.5?1:-1));
@@ -306,9 +307,11 @@ export class Puzzle {
       for(const pc of this.pieces){
         if(this._isLive(pc)) continue;
         if(pc.x+b.cw < vx0 || pc.y+b.ch < vy0 || pc.x > vx1 || pc.y > vy1) continue;    // off screen
-        const l = pc.placed && lod === 0 ? 1 : lod;
+        const l = pc.placed && lod === 0 ? 1 : lod, faded = this.filter === 'edges' && !pc.placed && !pc.edge;
+        if(faded) g.globalAlpha = .22;
         if(l === 2) this._drawPiece(g, pc, 2, false);
         else g.drawImage(this._sprite(pc, l), pc.x-pad, pc.y-pad, b.cw+2*pad, b.ch+2*pad);
+        if(faded) g.globalAlpha = 1;
       }
     }
     this.layerCam = {...c}; this.dirty = false;
@@ -342,11 +345,11 @@ export class Puzzle {
   _pick(x,y, exact = false){
     const [wx,wy] = this._w(x,y), {cw,ch,pad} = this.board, {ctx} = this; ctx.setTransform(1,0,0,1,0,0);
     for(let i=this.pieces.length-1;i>=0;i--){ const pc = this.pieces[i];
-      if(pc.placed || pc.anim || wx < pc.x-pad || wy < pc.y-pad || wx > pc.x+cw+pad || wy > pc.y+ch+pad) continue;
+      if(pc.placed || pc.anim || this._hidden(pc) || wx < pc.x-pad || wy < pc.y-pad || wx > pc.x+cw+pad || wy > pc.y+ch+pad) continue;
       if(ctx.isPointInPath(pc.path, wx-pc.x, wy-pc.y)) return pc; }
     if(exact) return null;                      // drags need a real touch on a piece; only taps get the near-miss help
     let best = null, bd = Math.max(Math.min(cw,ch)*0.7, 34/this.cam.s);          // forgiving near-miss for unsteady fingers
-    for(const pc of this.pieces){ if(pc.placed || pc.anim) continue;
+    for(const pc of this.pieces){ if(pc.placed || pc.anim || this._hidden(pc)) continue;
       const d = Math.hypot(wx-(pc.x+cw/2), wy-(pc.y+ch/2)); if(d<bd){ bd=d; best=pc; } }
     return best;
   }
@@ -530,5 +533,7 @@ export class Puzzle {
     if(this.zoomable && !(this._visible(tx,ty) && this._visible(tx+cw,ty+ch))) this._camTo(this.cam.s, tx+cw/2, ty+ch/2, 400, go);
     else go();
   }
+  _hidden(pc){ return this.filter === 'edges' && !pc.edge; }
+  setFilter(f){ this.filter = f; if(this.sel && this._hidden(this.sel)) this.sel = null; this.dirty = true; this.draw(); }
   setPeek(on){ this.peek = on; this.dirty = true; this.draw(); }
 }

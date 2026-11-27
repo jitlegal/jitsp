@@ -1,7 +1,7 @@
 // The app shell: home screen, dialogs, settings, music, sharing, saving, scrapbook and backups —
 // everything shared by all games. Each game is a plug-in in js/games/ (see GAMES.md).
 import { gridFor } from './engine.js';
-import { settings, current, album, streak, today, LS } from './store.js';
+import { settings, current, album, streak, dealStreak, today, dayBefore, LS } from './store.js';
 import { publicBase, makeLink, readLink, photoForLink, qrCanvas, shareLink, shareImage, copy, smsHref, mailHref, postcard, QR_MAX } from './share.js';
 import { SCENES, paintScene, sceneName, pickScene } from './scenes.js';
 import { createMusic, STATIONS } from './music.js';
@@ -16,7 +16,8 @@ const h = (tag, props = {}, ...kids) => { const e = document.createElement(tag);
     if(v == null || v === false) continue;
     if(k === 'class') e.className = v;
     else if(/^on[a-z]+$/.test(k) && typeof v === 'function') e.addEventListener(k.slice(2), v);
-    else if(k === 'style' || k.startsWith('aria-') || k.startsWith('data-') || k === 'role') e.setAttribute(k, v);
+    else if(k === 'style') e.style.cssText = v;                       // CSSOM: allowed under a strict CSP
+    else if(k.startsWith('aria-') || k.startsWith('data-') || k === 'role') e.setAttribute(k, v);
     else if(k in e && !/^(innerHTML|outerHTML|srcdoc)$/.test(k)) e[k] = v;
     else e.setAttribute(k, v);
   }
@@ -127,7 +128,7 @@ const hooks = {
 function saveProgress(){ if(!active) return; current.saveState(active.inst.state(), active.seconds, active.inst.progress()); }
 
 /** Start (or resume) any game from its recipe. source: a ready picture; embed: a photo from a link. */
-async function startGame(recipe, { source, embed, resume } = {}){
+async function startGame(recipe, { source, embed, resume, daily } = {}){
   if(starting) return; starting = true;
   try{
     const game = gameOf(recipe); if(!game){ toast('Sorry — that game isn’t available here.'); return; }
@@ -155,15 +156,16 @@ async function startGame(recipe, { source, embed, resume } = {}){
     }
     await new Promise(r => requestAnimationFrame(r));
     const inst = game.create($('#stage'), hooks);
-    active = { game, inst, recipe, img, title: game.title(recipe, recipe.f), seconds: resume?.seconds || 0, embed: recipe.src?.t === 'img' ? embed : null };
+    active = { game, inst, recipe, img, title: game.title(recipe, recipe.f), seconds: resume?.seconds || 0, embed: recipe.src?.t === 'img' ? embed : null, daily: daily || resume?.daily || null };
     await inst.load(recipe, { image: img, state: resume?.state });
     // toolbar: only the buttons this game supports
     $('#undoBtn').classList.toggle('hidden', !inst.undo);
     $('#tidyBtn').classList.toggle('hidden', !inst.tidy);
+    $('#edgesBtn').classList.toggle('hidden', !(inst.setFilter && inst.edgesUseful)); $('#edgesBtn').setAttribute('aria-pressed', 'false');
     $('#peekBtn').classList.toggle('hidden', !inst.setPeek); $('#peekBtn').setAttribute('aria-pressed', 'false');
     hooks.onZoomable(game.usesPicture && recipe.n >= 49);
     const p = inst.progress(); hooks.onProgress(p.done, p.total);
-    if(!resume) await current.save({ recipe, state: inst.state(), seconds: 0, progress: p, image: blob });
+    if(!resume) await current.save({ recipe, state: inst.state(), seconds: 0, progress: p, image: blob, daily: active.daily });
     $('#toast').classList.add('hidden');
     announce(`${active.title}. ${game.describe(recipe)}. ${game.tip || ''}`);
     if(!resume && !LS.get('jig.tipSeen.' + game.id) && game.tip) showTip(game.tip, game.id);
@@ -188,6 +190,8 @@ $('#peekBtn').onclick = () => { const i = active?.inst; if(!i?.setPeek) return; 
 $('#thumbBtn').onclick = () => $('#peekBtn').click();
 $('#tidyBtn').onclick = () => { if(active?.inst.tidy){ active.inst.tidy(); saveProgress(); announce('Pieces tidied, edge pieces closest to the board.'); } };
 $('#undoBtn').onclick = () => active?.inst.undo?.();
+$('#edgesBtn').onclick = () => { const i = active?.inst; if(!i?.setFilter) return; const on = i.filter !== 'edges'; i.setFilter(on ? 'edges' : null);
+  $('#edgesBtn').setAttribute('aria-pressed', String(on)); announce(on ? 'Showing only edge pieces. Build the frame first!' : 'Showing all pieces again.'); };
 $('#helpBtn').onclick = () => active?.inst.help();
 $('#zoomIn').onclick = () => active?.inst.zoomIn?.();
 $('#zoomOut').onclick = () => active?.inst.zoomOut?.();
@@ -198,8 +202,8 @@ addEventListener('resize', () => { clearTimeout(window.__rz); window.__rz = setT
 // ---------------- finishing ----------------
 async function finished(){
   const g = active; if(!g || g.finished) return; g.finished = true;
-  const name = settings.get().name, isDaily = g.recipe.d === today() && g.game.id === 'jigsaw';
-  const st = isDaily ? streak.complete() : null;
+  const name = settings.get().name, isDaily = g.game.id === 'jigsaw' && (g.recipe.d === today() || g.recipe.d === dayBefore(today()));
+  const st = isDaily ? streak.complete(g.recipe.d) : g.daily && (g.daily === today() || g.daily === dayBefore(today())) ? dealStreak.complete(g.daily) : null;
   current.clear();
   const pic = g.img || g.inst.snapshot?.() || null;
   if(pic) g.pic = pic;
@@ -211,7 +215,7 @@ async function finished(){
       h('h2', {}, name ? `Wonderful, ${name}!` : 'Wonderful!'),
       picURL ? h('img', { class:'win-pic', src: picURL, alt: g.title }) : null,
       h('p', { class:'big' }, g.game.finishText(g.recipe, g.seconds, g.inst.stats?.() || {})),
-      st ? h('p', {}, st.count > 1 ? `🔥 That's ${st.count} days in a row!` : '🔥 Today’s puzzle is done. See you tomorrow for a new one!') : null,
+      st ? h('p', {}, st.count > 1 ? `🔥 That's ${st.count} days in a row!` : `🔥 Today’s ${isDaily ? 'puzzle' : 'deal'} is done. See you tomorrow for a new one!`) : null,
       h('div', { class:'stack' },
         h('button', { class:'primary', autofocus:true, onclick: () => shareDialog(g, true) }, '💌 Share with family'),
         h('button', { class:'secondary', onclick: () => { closeDialog(); show('home'); } }, g.game.id === 'jigsaw' ? '🧩 Another puzzle' : `${g.game.emoji} Another game`),
@@ -323,6 +327,10 @@ function guardNew(go){
       h('button', { class:'secondary', onclick: () => { closeDialog(); go(); } }, 'Start the new one')));
 }
 $('#todayBtn').onclick = () => guardNew(() => startGame(today$()));
+$('#dealBtn').onclick = () => { const sol = getGame('solitaire'); if(!sol) return;
+  const seed = ([...today()].reduce((a,c) => Math.imul(a ^ c.charCodeAt(0), 16777619), 2166136261) ^ 0x51ED27) >>> 1;
+  const opts = { ...Object.fromEntries((sol.options||[]).map(o => [o.key, o.default])), ...(settings.get().opts_solitaire || {}), draw: 1 };
+  guardNew(() => startGame(sol.newRecipe(seed, opts), { daily: today() })); };
 $('#photoBtn').onclick = () => $('#file').click();
 $('#file').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if(!f) return;
@@ -564,6 +572,10 @@ async function refreshHome(){
   $('#streakText').textContent = done ? `✓ Done today${st.count > 1 ? ` — 🔥 ${st.count} days in a row` : ''}. A new one arrives tomorrow.`
     : st.count > 0 ? `🔥 ${st.count} day${st.count>1?'s':''} in a row — keep it going!` : 'A new painted picture every day.';
   $('#todayBtn').textContent = done ? 'Play it again' : 'Start today’s puzzle';
+  const sol = getGame('solitaire'); $('#dealCard').classList.toggle('hidden', !sol);
+  if(sol){ const ds = dealStreak.get(), dd = dealStreak.doneToday();
+    $('#dealText').textContent = dd ? `✓ Done today${ds.count > 1 ? ` — 🔥 ${ds.count} days in a row` : ''}. A new deal tomorrow.` : ds.count > 0 ? `🔥 ${ds.count} day${ds.count>1?'s':''} in a row — keep it going!` : 'The same winnable deal for everyone today.';
+    $('#dealBtn').textContent = dd ? 'Play it again' : 'Deal me in'; }
   const c = current.get(), game = c && gameOf(c.recipe);
   $('#continueCard').classList.toggle('hidden', !game);
   if(game){

@@ -1,4 +1,4 @@
-# Family Jigsaw 🧩
+# Family Puzzles 🧩🃏
 
 Relaxing jigsaw puzzles made for grandparents: big pieces, tap-to-move, a "Help me" button,
 a new painted picture every day, old-time public-domain music, and puzzles you can send to family
@@ -6,6 +6,28 @@ by link or QR code.
 
 It is a **static site**: no server, no build step, no accounts, no API keys. It runs on
 GitHub Pages or Netlify. Third-party code loads from a CDN, pinned to an exact version and integrity-checked.
+
+## Games
+
+| Game | What makes it grandparent-friendly |
+|---|---|
+| Jigsaw (6–1000 pieces) | Tap a piece, then tap where it goes. Help me, Show picture, Tidy (edge pieces nearest), 🔲 Edges (fade everything but the frame pieces). Big puzzles get a zoomable table that opens with ~48 px pieces, and a picked-up piece shows a gold square around its home. |
+| Solitaire (Klondike) | Always-winnable seeded deals, tap a card to move it, unlimited Undo, four-colour deck, fully playable by keyboard and screen reader. |
+| Daily | Today's painted puzzle **and** today's Solitaire deal: the same for everyone, each with its own streak. |
+
+New games plug in through `js/games/` (see `GAMES.md`).
+
+## Music
+
+Composed on the device (works offline, no crackle): Calm, Warm, Bubbly and Parlor Waltz. Each puzzle gets its own song. "Nostalgia" stations stream real 1900–1925 records from the Internet Archive, cleaned up live (crackle, hiss and rumble).
+
+## Accessibility
+
+Built to WCAG 2.2 AA (checked with axe-core): spoken names and live announcements, keyboard play, dialog focus handling, browser zoom, and Settings for larger text, high contrast, less movement and a light table. Jigsaws are a picture game; Solitaire is fully playable without sight.
+
+## Security
+
+Strict Content-Security-Policy and other headers in `netlify.toml`; share links and backups are treated as hostile input and validated; QR codes never point at localhost. **Anything in `photos/` is public** even though the repository is private, so never put private photos there.
 
 ## Put it online
 

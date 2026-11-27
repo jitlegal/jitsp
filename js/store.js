@@ -34,8 +34,8 @@ async function tx(store, mode, fn){
 // ---------- puzzle in progress ----------
 // recipe: what the puzzle is (shareable); state: where pieces are; image: Blob of the picture.
 export const current = {
-  async save({recipe, state, seconds, progress, image}){
-    LS.set('jig.current', { g: recipe.g || 'jigsaw', recipe, state, seconds, progress: progress || null, sv: 2, at: Date.now() });
+  async save({recipe, state, seconds, progress, image, daily}){
+    LS.set('jig.current', { g: recipe.g || 'jigsaw', recipe, state, seconds, progress: progress || null, daily: daily || null, sv: 2, at: Date.now() });
     if(image) await tx('images','readwrite', s => s.put(image, 'current')).catch(()=>{});
   },
   saveState(state, seconds, progress){ const c = LS.get('jig.current'); if(c){ c.state = state; c.seconds = seconds; if(progress) c.progress = progress; c.g = c.recipe?.g || 'jigsaw'; c.sv = 2; c.at = Date.now(); LS.set('jig.current', c); } },
@@ -53,19 +53,25 @@ export const album = {
 
 // ---------- daily puzzle streak ----------
 export const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
-export const streak = {
+function makeStreak(key){ return {
   get(){
-    const s = LS.get('jig.streak', { last:null, count:0, best:0, total:0 });
+    const s = LS.get(key, { last:null, count:0, best:0, total:0 });
     if(s.last && s.last !== today() && s.last !== yesterday()) s.count = 0;      // missed a day
     return s;
   },
-  doneToday(){ return LS.get('jig.streak', {}).last === today(); },
-  complete(){
-    const s = streak.get(); if(s.last === today()) return s;
-    s.count = s.last === yesterday() ? s.count + 1 : 1;
-    s.best = Math.max(s.best, s.count); s.total = (s.total||0) + 1; s.last = today();
-    LS.set('jig.streak', s); return s;
+  doneToday(){ return LS.get(key, {}).last === today(); },
+  /** Credit the day the puzzle belongs to (a puzzle started before midnight still counts). */
+  complete(day = today()){
+    const s = this.get(); if(s.last && s.last >= day) return s;
+    s.count = s.last === dayBefore(day) ? s.count + 1 : 1;
+    s.best = Math.max(s.best, s.count); s.total = (s.total||0) + 1; s.last = day;
+    LS.set(key, s); return s;
   },
-};
+}; }
+export const streak = makeStreak('jig.streak');
+export const dealStreak = makeStreak('jig.streak.deal');
+function dayBefore(day){ const [y,m,d] = day.split('-').map(Number), t = new Date(y, m-1, d-1);
+  return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`; }
+export { dayBefore };
 function yesterday(){ const d = new Date(); d.setDate(d.getDate()-1);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
