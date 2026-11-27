@@ -690,6 +690,11 @@ applyLook();
 renderGameTiles();
 show('home');
 if(!checkBackupLink()) checkIncoming();
-if('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(()=>{});
+if('serviceWorker' in navigator && location.protocol === 'https:'){
+  const hadController = !!navigator.serviceWorker.controller; let reloaded = false;
+  // a new version took over: reload once so the update shows immediately (never on the very first install)
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if(hadController && !reloaded && !active){ reloaded = true; location.reload(); } });
+  navigator.serviceWorker.register('sw.js').then(r => r.update()).catch(()=>{});
+}
 // for automated tests
 window.__jig = { get puzzle(){ return active?.inst.engine; }, get game(){ return active; }, makeLink, readLink };
