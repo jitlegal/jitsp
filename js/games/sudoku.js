@@ -157,8 +157,7 @@ class Sudoku {
     erase.append(Object.assign(document.createElement('span'), { className: 'sdk-key-ico', textContent: '⌫' }), Object.assign(document.createElement('span'), { className: 'sdk-key-txt', textContent: 'Erase' }));
     erase.firstChild.setAttribute('aria-hidden', 'true'); erase.lastChild.setAttribute('aria-hidden', 'true');
     pad.append(erase, notesBtn);
-    this.msg = document.createElement('div'); this.msg.className = 'sdk-msg'; this.msg.setAttribute('aria-hidden', 'true');
-    root.append(help, grid, pad, this.msg); if (this.live) root.append(this.live);
+    root.append(help, grid, pad); if (this.live) root.append(this.live);
     host.append(root);
     this._bind();
   }
@@ -186,7 +185,7 @@ class Sudoku {
   get done() { return this._completed; }
   stats() { return { mistakes: this.mistakes, hints: this.hints }; }
   resize() { this._layout(); }
-  destroy() { clearTimeout(this._msgT); this.root.remove(); }
+  destroy() { this.root.remove(); }
   undo() {
     const e = this.hist.pop(); if (!e) { this._say('Nothing to undo.'); return; }
     const [i, v, n] = e; this.vals[i] = v; this.notes[i] = n;
@@ -280,7 +279,7 @@ class Sudoku {
   _input(d) {
     if (this._completed) return;
     const i = this.sel;
-    if (this.P.givens[i]) { this._say(`That ${this.P.givens[i]} was printed in the puzzle, so it can’t change. Pick an empty square.`); this._flash('That square is part of the puzzle'); return; }
+    if (this.P.givens[i]) { this._say(`That ${this.P.givens[i]} was printed in the puzzle, so it can’t change. Pick an empty square.`); this._nope(i); return; }
     if (d === 0) { if (this.vals[i]) this._set(i, 0); else if (this.notes[i]) { this.hist.push([i, 0, this.notes[i]]); this.notes[i] = 0; this._render(); this.hooks.onChange?.(); this._say('Notes cleared.'); } return; }
     if (this.notesMode) { this._toggleNote(i, d); return; }
     if (this.vals[i] === d) { this._set(i, 0); return; }          // tapping the same number again takes it back out
@@ -343,10 +342,8 @@ class Sudoku {
     if (this.hooks.announce) { this.hooks.announce(text); return; }
     if (this.live) { this.live.textContent = ''; setTimeout(() => { this.live.textContent = text; }, 40); }
   }
-  _flash(text) {
-    this.msg.textContent = text; this.msg.classList.add('show'); clearTimeout(this._msgT);
-    this._msgT = setTimeout(() => this.msg.classList.remove('show'), 1800);
-  }
+  /** A printed square can't change: give it a gentle shake instead of covering the grid with a message. */
+  _nope(i) { const c = this.cells[i]; c.classList.remove('nope'); void c.offsetWidth; c.classList.add('nope'); setTimeout(() => c.classList.remove('nope'), 600); }
   _select(i, focus) {
     this.sel = i; this._render(); if (focus) this.cells[i].focus({ preventScroll: true });
   }

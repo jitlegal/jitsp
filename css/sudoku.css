@@ -1,6 +1,6 @@
 /* Sudoku — big, calm, high-contrast. Sizes come from JS: --cell (square), --btn (pad key). */
 .sdk{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:14px;padding:10px;box-sizing:border-box;
-  font-family:var(--font,'Atkinson Hyperlegible',system-ui,sans-serif);--ink:#1b1b1b;--user:#1558b0;--bad:#b3261e;--sel:#ffe08a;--peer:#f6edd6;--same:#cfe0ff;
+  font-family:var(--font,'Atkinson Hyperlegible',system-ui,sans-serif);--ink:#1b1b1b;--user:#1558b0;--bad:#b3261e;--sel:#ffd966;--peer:#efe3c2;--same:#c2d7ff;
   --line:#a89f8c;--box:#2b2118;--paper:#fff;--focus:#1558b0;user-select:none;-webkit-user-select:none;
   --ts:var(--card-scale,1)}
 .sdk.portrait{flex-direction:column}
@@ -59,9 +59,8 @@
 .sdk-notes-btn .sdk-key-txt{margin-top:0}
 .sdk-notes-btn[aria-pressed=true]{background:#2e7d32;color:#fff;box-shadow:0 3px 0 #1b5e20}
 .sdk.notes-mode .sdk-cell.sel::after{border-style:dashed}
-.sdk-msg{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:#2b2118;color:#fffaf0;padding:10px 16px;border-radius:12px;font-size:18px;
-  opacity:0;transition:opacity .2s;pointer-events:none}
-.sdk-msg.show{opacity:1}
+.sdk-cell.nope{animation:sdk-nope .45s ease}
+@keyframes sdk-nope{20%{transform:translateX(-4px)}40%{transform:translateX(4px)}60%{transform:translateX(-3px)}80%{transform:translateX(2px)}}
 
 /* settings from the shell */
 :root[data-motion=reduce] .sdk *{animation:none!important;transition:none!important}
