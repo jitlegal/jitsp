@@ -332,7 +332,12 @@ export class Puzzle {
     if(sp && !sp.placed && (sp === this.sel || sp === this.drag)){
       const [tx,ty] = this.target(sp), {cw,ch} = this.board;
       ctx.save(); ctx.lineWidth = 5/c.s; ctx.strokeStyle = 'rgba(255,213,79,.95)'; ctx.fillStyle = 'rgba(255,213,79,.14)';
-      ctx.fillRect(tx-cw, ty-ch, cw*3, ch*3); ctx.strokeRect(tx-cw, ty-ch, cw*3, ch*3); ctx.restore();
+      // a search area, not the answer: 5×5 spots (7×7 on big puzzles), home at a random spot inside, kept on the board
+      const n = this.pieces.length >= 100 ? 7 : 5, b = this.board, o = this.hintOff || [0, 0];
+      let ax = tx - cw*Math.floor(n/2) + o[0]*cw, ay = ty - ch*Math.floor(n/2) + o[1]*ch;
+      ax = Math.max(b.x, Math.min(b.x + b.w - n*cw, ax)); ay = Math.max(b.y, Math.min(b.y + b.h - n*ch, ay));
+      const w = Math.min(n*cw, b.w), hh = Math.min(n*ch, b.h);
+      ctx.fillRect(ax, ay, w, hh); ctx.strokeRect(ax, ay, w, hh); ctx.restore();
     }
   }
   _raf(){ if(!this._q){ this._q = true; requestAnimationFrame(()=>{ this._q = false; this.draw(); }); } }
@@ -529,6 +534,8 @@ export class Puzzle {
       let pc = this.sel && free(this.sel) ? this.sel : null;
       if(!pc){ for(const p of this.pieces) if(free(p) && (!pc || p.edge > pc.edge || (p.edge === pc.edge && (p.r < pc.r || (p.r === pc.r && p.c < pc.c))))) pc = p; }
       if(!pc) return;
+      const span = this.pieces.length >= 100 ? 3 : 2;
+      this.hintOff = [Math.round((Math.random()*2-1)*span), Math.round((Math.random()*2-1)*span)];
       this.hint = pc; this.sel = pc; this._toTop(pc); this.dirty = true; this._follow(pc); this._raf();
       this.hooks.announce?.('This piece belongs inside the gold area. Tap Help me again to place it for you.'); return;
     }

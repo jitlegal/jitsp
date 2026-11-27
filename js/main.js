@@ -23,7 +23,7 @@ const h = (tag, props = {}, ...kids) => { const e = document.createElement(tag);
     else e.setAttribute(k, v);
   }
   e.append(...kids.flat().filter(x => x != null && x !== false)); return e; };
-const APP_VERSION = '2026.11.27-r4';                // shown in Settings so you can tell an update has arrived
+const APP_VERSION = '2026.11.27-r5';                // shown in Settings so you can tell an update has arrived
 const randSeed = () => (Math.random()*2**31)|0;
 const SIZES = [[6,'Easy'],[12,'Relaxed'],[24,'Challenge'],[48,'Expert']];
 const jigsaw = getGame('jigsaw');
