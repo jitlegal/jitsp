@@ -324,6 +324,13 @@ export class Puzzle {
     if(this.done) return;
     ctx.setTransform(c.s*DPR,0,0,c.s*DPR,c.ox*DPR,c.oy*DPR);
     for(const pc of this.pieces) if(this._isLive(pc)) this._drawPiece(ctx, pc, 0, true);
+    // Big puzzles: a picked-up piece shows a soft gold area (3×3 spots) where its home is — still a puzzle, much less searching.
+    const sp = this.sel || this.drag;
+    if(sp && this.zoomable && !sp.placed){
+      const [tx,ty] = this.target(sp), {cw,ch} = this.board;
+      ctx.save(); ctx.lineWidth = 5/c.s; ctx.strokeStyle = 'rgba(255,213,79,.95)'; ctx.fillStyle = 'rgba(255,213,79,.14)';
+      ctx.fillRect(tx-cw, ty-ch, cw*3, ch*3); ctx.strokeRect(tx-cw, ty-ch, cw*3, ch*3); ctx.restore();
+    }
   }
   _raf(){ if(!this._q){ this._q = true; requestAnimationFrame(()=>{ this._q = false; this.draw(); }); } }
 
@@ -408,7 +415,9 @@ export class Puzzle {
       if(was.type === 'piece'){
         if(stale(was.pc)){ if(this.drag === was.pc) this.drag = null; this.dirty = true; this._raf(); return; }
         if(was.moved){ endDrag(true); return; }
-        this.sel = this.sel === was.pc ? null : was.pc; this.dirty = true; this._raf(); return;       // tap: pick up / put down
+        this.sel = this.sel === was.pc ? null : was.pc; this.dirty = true; this._raf();
+        if(this.sel && this.zoomable) this.hooks.announce?.('Piece picked up. Its home is inside the gold square — tap See all to find it, then tap the middle.');
+        return;       // tap: pick up / put down
       }
       if(was.type === 'table'){
         if(was.moved){ this._camMoved(true); return; }
