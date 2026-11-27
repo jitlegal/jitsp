@@ -406,6 +406,17 @@ export function createSongPlayer(ctx, out, { offline = false, reverb = true } = 
       if (!timer && !offline) timer = setInterval(() => pump(), TICK);
       return song;
     },
+    // Play exactly one song (e.g. from a playlist), then call onEnd(song) shortly before it finishes.
+    playOne({ seed, mood, fade = 2.5, onEnd } = {}) {
+      gen++; for (const s of active) if (!s.dead) fadeOut(s, fade);
+      series = null;
+      const song = composeSong(seed >>> 0, mood);
+      startSong(song, ctx.currentTime + 0.12, fade);
+      if (!timer && !offline) timer = setInterval(() => pump(), TICK);
+      const myGen = gen;
+      if (onEnd) setTimeout(() => { if (myGen === gen) onEnd(song); }, Math.max(1000, (song.length - 1.5) * 1000));
+      return song;
+    },
     stop(fade = 1.5) { gen++; series = null; for (const s of active) if (!s.dead) fadeOut(s, fade); },
     renderAll(song, at = 0, horizon = Infinity) { startSong(song, at, 0); pump(horizon); },     // offline rendering / tests
     dispose() { clearInterval(timer); timer = null; for (const s of active) for (const n of s.nodes) if (n) try { n.disconnect(); } catch (_) {} active = []; try { master.output.disconnect(); } catch (_) {} },

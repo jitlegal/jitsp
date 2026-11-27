@@ -91,6 +91,7 @@ class Archive {
         title: titleCase(tidy(first(md.title) || first(doc.title))),
         artist: titleCase(tidy(first(md.creator) || first(doc.creator) || 'Unknown performer')),
         year: Number(first(md.year) || doc.year || String(first(md.date) || '').slice(0, 4)) || null,
+        id: doc.identifier,
         url: `https://archive.org/details/${doc.identifier}`,
         image: `https://archive.org/services/img/${doc.identifier}`,
         station: st.id,
@@ -223,6 +224,7 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
   const settings = loadSettings();
   if (!STATIONS.some(s => s.id === settings.station)) settings.station = 'mood-calm';
   let songs = null, songCtx = { seed: (Math.random() * 2 ** 31) >>> 0 };
+  let pl = null, nowRef = null;                       // pl: playlist being played { refs, i, fails }; nowRef: what's playing
   let volume = Math.min(1, Math.max(0, Number(settings.volume ?? 0.5)));
   let playing = false, state = 'paused', fallback = false, failures = 0, gen = 0, retryAfter = 0;
   let ctx = null, boxGain = null;
@@ -324,27 +326,28 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
     return t;
   }
 
-  async function startLive(myGen) {
+  async function startLive(myGen, given) {
     setState('loading');
     let t;
-    try { if (nxt && cur && nxt.el === cur.el) nxt = null; t = nxt || await prepare(myGen); nxt = null; }
+    try { if (given) t = given; else { if (nxt && cur && nxt.el === cur.el) nxt = null; t = nxt || await prepare(myGen); nxt = null; } }
     catch (_) { if (myGen === gen) goOffline(myGen); return; }
     if (!t || myGen !== gen || t.el._owner !== t) return;
     const old = cur; cur = t;
     if (old && old !== t) fade(old.el, 0, FADE_MS, () => killAudio(old));
     const a = t.el;
-    a.onplaying = () => { if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); if (cur === t) { failures = 0; setState('playing'); } };
-    a.onerror = () => { if (cur !== t || a._owner !== t) return; failures++; if (failures >= 3) goOffline(myGen); else startLive(myGen); };
-    a.onloadedmetadata = () => { if (cur === t && Number.isFinite(a.duration) && (a.duration < MIN_SEC || a.duration > MAX_SEC + 30)) startLive(myGen); };
-    a.onended = () => { if (cur === t) startLive(myGen); };
+    a.onplaying = () => { if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); if (cur === t) { failures = 0; if (pl) pl.fails = 0; setState('playing'); } };
+    a.onerror = () => { if (cur !== t || a._owner !== t) return; if (pl) { pl.fails++; plNext(myGen); return; } failures++; if (failures >= 3) goOffline(myGen); else startLive(myGen); };
+    a.onloadedmetadata = () => { if (!pl && cur === t && Number.isFinite(a.duration) && (a.duration < MIN_SEC || a.duration > MAX_SEC + 30)) startLive(myGen); };
+    a.onended = () => { if (cur === t) (pl ? plNext(myGen) : startLive(myGen)); };
     a.ontimeupdate = () => {           // preload the next record half-way through; fade out at the very end
       if (cur !== t || !Number.isFinite(a.duration)) return;
-      if (!nxt && !t.prefetch && a.currentTime > a.duration / 2) {
+      if (!pl && !nxt && !t.prefetch && a.currentTime > a.duration / 2) {
         t.prefetch = true;
         prepare(myGen).then(n => { if (n && myGen === gen && cur === t && n.el !== t.el) nxt = n; else if (n && n !== cur) killAudio(n); }).catch(() => {});
       }
       if (!t.out && a.duration - a.currentTime < FADE_MS / 1000) { t.out = true; fade(a, 0, FADE_MS); }
     };
+    nowRef = t.info.id ? { k: 'r', id: t.info.id, title: t.info.title, artist: t.info.artist, year: t.info.year } : null;
     onTrack(t.info);
     try { await a.play(); if (cur === t) fade(a, volume, FADE_MS); }
     catch (e) {
@@ -354,8 +357,37 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
         return;
       }
       if (e && e.name === 'AbortError') return;          // src was swapped on purpose
+      if (pl) { pl.fails++; plNext(myGen); return; }
       failures++; failures >= 3 ? goOffline(myGen) : startLive(myGen);
     }
+  }
+
+  // ---- playlists: play the list in order, then loop; composed songs by seed+mood, records by identifier ----
+  async function plNext(myGen) {
+    if (myGen !== gen || !pl) return;
+    if (pl.fails >= pl.refs.length) { pl = null; playing = false; nowRef = null; setState('error'); return; }   // nothing in the list can play
+    const ref = pl.refs[pl.i % pl.refs.length]; pl.i++;
+    if (ref.k === 'c') {
+      if (cur) { const c = cur; cur = null; fade(c.el, 0, FADE_MS, () => killAudio(c)); }
+      killAudio(nxt); nxt = null; box.stop(); ensureCtx();
+      songs ||= createSongPlayer(ctx, boxGain);
+      const song = songs.playOne({ seed: ref.seed, mood: ref.mood, onEnd: () => plNext(myGen) });
+      nowRef = { k: 'c', seed: song.seed, mood: song.mood, title: song.title };
+      onTrack({ title: song.title, artist: 'Composed on this device', year: null, url: null, image: null, station: 'playlist' });
+      boxFade(volume * 0.9, FADE_MS); pl.fails = 0; setState('playing');
+      return;
+    }
+    setState('loading');
+    try {
+      const r = await archive.resolve({ identifier: ref.id, title: ref.title, creator: ref.artist, year: ref.year }, { id: 'playlist' });
+      if (!r) throw new Error('unplayable');
+      if (!mode) { modeP = modeP || decideMode(r.src); await modeP; }
+      if (myGen !== gen || !pl) return;
+      songs?.stop(1.5); boxFade(0, 300);
+      const el = idleEl(); if (nxt && nxt.el === el) nxt = null;
+      const t = { el, src: r.src, info: r.info, prefetch: true, out: false };
+      load(el, t); startLive(myGen, t);
+    } catch (_) { if (myGen === gen && pl) { pl.fails++; plNext(myGen); } }
   }
 
   function goOffline(myGen) {
@@ -378,16 +410,18 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
   }
 
   function start() {
-    const myGen = ++gen; failures = 0; fallback = false;
+    const myGen = ++gen; failures = 0; fallback = false; pl = null;
     box.stop(); boxFade(0, 300); songs?.stop(1.5);
     if (station().id.startsWith('mood-')) {          // composed songs: same seed → same song, endless variations
       if (cur) { const c = cur; cur = null; fade(c.el, 0, FADE_MS, () => killAudio(c)); }
       killAudio(nxt); nxt = null; ensureCtx();
       songs ||= createSongPlayer(ctx, boxGain);
       const st = station();
-      songs.playSeries({ seed: songCtx.seed, mood: st.id.slice(5), onSong: song => onTrack({ title: song.title, artist: 'Composed on this device', year: null, url: null, image: null, station: st.id }) });
+      songs.playSeries({ seed: songCtx.seed, mood: st.id.slice(5), onSong: song => { nowRef = { k: 'c', seed: song.seed, mood: song.mood, title: song.title };
+        onTrack({ title: song.title, artist: 'Composed on this device', year: null, url: null, image: null, station: st.id }); } });
       boxFade(volume * 0.9, FADE_MS); setState('playing');
     } else if (station().id === 'musicbox') {
+      nowRef = null;
       if (cur) { const c = cur; cur = null; fade(c.el, 0, FADE_MS, () => killAudio(c)); }
       killAudio(nxt); nxt = null; startBox(false);
     } else {
@@ -404,12 +438,24 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
       playing = true; start();
     },
     stop() {
-      gen++; playing = false; settings.on = false; saveSettings(settings);
+      gen++; playing = false; pl = null; nowRef = null; settings.on = false; saveSettings(settings);
       box.stop(); songs?.stop(0.4); boxFade(0, 400);
       for (const t of [cur, nxt]) if (t) { const x = t; fade(x.el, 0, 600, () => killAudio(x)); }
       cur = null; nxt = null; setState('paused');
     },
-    next() { if (playing) { unlock(); start(); } },
+    next() { if (!playing) return; unlock(); if (pl) { const g = ++gen; songs?.stop(1.2); plNext(g); } else start(); },
+    /** Play a list of song refs ({k:'c',seed,mood} / {k:'r',id,...}) in order from startIndex, looping. Call from a tap. */
+    playPlaylist(refs, startIndex = 0) {
+      const list = (Array.isArray(refs) ? refs : []).filter(r => r && ((r.k === 'c' && Number.isFinite(r.seed)) || (r.k === 'r' && typeof r.id === 'string')));
+      if (!list.length) return false;
+      ensureCtx(); unlock();
+      settings.on = true; saveSettings(settings); playing = true; failures = 0; fallback = false;
+      const myGen = ++gen; box.stop(); songs?.stop(1.5);
+      pl = { refs: list, i: Math.max(0, Math.min(list.length - 1, startIndex | 0)), fails: 0 };
+      plNext(myGen); return true;
+    },
+    get nowPlayingRef() { return nowRef ? { ...nowRef } : null; },   // for a '♡ Keep this song' button
+    get playlistActive() { return !!pl; },
     toggle() { return playing ? api.stop() : api.play(); },
     setVolume(v) {
       volume = Math.min(1, Math.max(0, Number(v) || 0)); settings.volume = volume; saveSettings(settings);
@@ -423,7 +469,7 @@ export function createMusic({ onTrack = () => {}, onState = () => {} } = {}) {
     get restore() { return settings.restore !== false; },
     get cleanMode() { return mode; },              // 'clean' | 'plain' | null (not decided yet)
     /** Each puzzle gets its own song: the seed comes from the puzzle. */
-    setContext({ seed } = {}) { if (Number.isFinite(seed)) songCtx.seed = seed >>> 0; if (playing && station().id.startsWith('mood-')) start(); },
+    setContext({ seed } = {}) { if (Number.isFinite(seed)) songCtx.seed = seed >>> 0; if (playing && !pl && station().id.startsWith('mood-')) start(); },   // never interrupts a playlist
     get volume() { return volume; },
     get playing() { return playing; },
     get station() { return settings.station; },

@@ -6,6 +6,7 @@ import { publicBase, makeLink, readLink, photoForLink, qrCanvas, shareLink, shar
 import { SCENES, paintScene, sceneName, pickScene } from './scenes.js';
 import { createMusic, STATIONS } from './music.js';
 import { exportBackup, importBackup } from './backup.js';
+import { playlists, exportPlaylists, importPlaylists, openPlaylistsDialog } from './playlists.js';
 import { GAMES, gameOf, getGame } from './games/registry.js';
 import { safePath } from './games/jigsaw.js';
 
@@ -451,6 +452,11 @@ function musicDialog(){
         h('b', {}, nowPlaying.title), h('span', {}, [nowPlaying.artist, nowPlaying.year].filter(Boolean).join(' · ')),
         nowPlaying.url && /^https:\/\/archive\.org\//.test(nowPlaying.url) ? h('div', {}, h('a', { href: nowPlaying.url, target:'_blank', rel:'noopener noreferrer' }, 'About this record')) : null)) : null,
     on ? h('button', { class:'secondary', style:'margin-top:10px;width:100%', onclick: () => music.next() }, '⏭️ Next song') : null,
+    on && music.nowPlayingRef ? (() => { const ref = music.nowPlayingRef, kept = playlists.isKept(ref);
+      return h('button', { class: kept ? 'secondary on' : 'secondary', 'aria-pressed': String(kept), style:'margin-top:10px;width:100%',
+        onclick: () => { if(playlists.isKept(ref)) playlists.unkeep(ref); else playlists.keep(ref); announce(playlists.isKept(ref) ? 'Song kept in your playlist.' : 'Song removed from kept songs.'); musicDialog(); } },
+        kept ? '♥ Kept — tap to remove' : '♡ Keep this song'); })() : null,
+    h('button', { class:'secondary', style:'margin-top:10px;width:100%', onclick: () => { musicPanelOpen = false; openPlaylistsDialog({ dialog, closeDialog, h, toast, announce, music }); } }, '📋 My playlists'),
     typeof music.setRestore === 'function' ? h('div', { class:'switch' },
       h('span', {}, 'Smooth out old-record crackle', h('small', { class:'muted', style:'display:block;font-weight:400' },
         music.cleanMode === 'plain' ? 'Not available for these records — playing them as they are.' : 'Softens pops, hiss and rumble from the 100-year-old records.')),
@@ -493,7 +499,7 @@ const kb = n => n < 1024 ? `${n} bytes` : n < 1048576 ? `${(n/1024).toFixed(n<10
 async function backupDialog(){
   const items = await album.all(), cur = current.get();
   const res = await exportBackup({ album: items, current: cur ? { ...cur, state: (cur.g || cur.state?.v) ? cur.state : { v: cur.sv === 2 ? 2 : 1, p: cur.state } } : null,
-    currentImage: cur ? await current.image() : null, streak: LS.get('jig.streak', null), settings: settings.get() });
+    currentImage: cur ? await current.image() : null, streak: LS.get('jig.streak', null), settings: settings.get(), playlists: exportPlaylists() });
   const { finished, inProgress, photos, size } = res.summary;
   const what = [plural(finished, 'finished game'), inProgress ? '1 in progress' : null].filter(Boolean).join(' and ');
   const link = res.code ? location.href.split('#')[0] + '#b=' + res.code : null;
@@ -542,6 +548,8 @@ async function restore(input){
       await current.save({ recipe, state: data.current.state, seconds: Math.max(0, data.current.seconds|0), progress: null, image: img ? await toBlob(img, .85) : null });
       curNote = ' Your game in progress is ready to continue.'; }catch(_){} }
   }
+  let songs = 0; try{ songs = importPlaylists(data.playlists) || 0; }catch(_){}
+  if(songs) curNote += ` ${plural(songs, 'song')} added to your playlists.`;
   const mine = LS.get('jig.streak', null), st = data.streak;
   if(st && typeof st === 'object' && Number.isFinite(st.total) && (!mine || st.total > (mine.total||0)))
     LS.set('jig.streak', { last: cleanText(st.last, 10) || null, count: Math.max(0, st.count|0), best: Math.max(0, st.best|0), total: Math.max(0, st.total|0) });

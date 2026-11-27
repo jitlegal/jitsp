@@ -1,8 +1,8 @@
 // Offline support: keep the app itself on the device so it opens instantly, even without internet.
 // Music, surprise photos and other outside data always go to the network and are never cached here.
-const CACHE = 'family-puzzles-v4';            // bump on every release so old copies are replaced
+const CACHE = 'family-puzzles-v5';            // bump on every release so old copies are replaced
 const SHELL = ['./', 'index.html', 'css/app.css', 'js/main.js', 'js/engine.js', 'js/store.js', 'js/share.js', 'js/backup.js',
-  'js/scenes.js', 'js/look.js', 'js/music.js', 'js/compose.js', 'js/restore-worklet.js', 'js/games/registry.js', 'js/games/jigsaw.js', 'js/games/solitaire.js', 'css/solitaire.css', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
+  'js/scenes.js', 'js/look.js', 'js/music.js', 'js/compose.js', 'js/playlists.js', 'js/restore-worklet.js', 'js/games/registry.js', 'js/games/jigsaw.js', 'js/games/solitaire.js', 'css/solitaire.css', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
 const CDN = ['https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js', 'https://fonts.googleapis.com/', 'https://fonts.gstatic.com/'];
 
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())));

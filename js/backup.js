@@ -67,9 +67,9 @@ async function compact(blob){
  * Build a backup. Returns {bytes, code|null, summary}.
  * data: {album:[...], current:{recipe,state,seconds}|null, currentImage:Blob|null, streak, settings}
  */
-export async function exportBackup({ album, current, currentImage, streak, settings }){
+export async function exportBackup({ album, current, currentImage, streak, settings, playlists }){
   const blobs = [], add = async b => { const u = await compact(b); blobs.push(u); return blobs.length-1; };
-  const m = { v:2, at: Date.now(), streak, settings, album: [] };
+  const m = { v:2, at: Date.now(), streak, settings, album: [], ...(playlists ? { pl: playlists } : {}) };
   for(const it of album){
     const e = { id: it.id, d: it.date, t: it.title, r: it.recipe, s: it.seconds };
     if(!regenerable(it.recipe) && it.full) e.i = await add(it.full);
@@ -109,7 +109,7 @@ export async function importBackup(input){
   const blobs = []; let off = 0;
   for(const sz of m.sizes || []){ if(!blobArea || off+sz > blobArea.length) throw new Error('damaged'); blobs.push(new Blob([blobArea.subarray(off, off+sz)])); off += sz; }
   return {
-    streak: m.streak, settings: m.settings,
+    streak: m.streak, settings: m.settings, playlists: m.pl && typeof m.pl === 'object' ? m.pl : null,
     album: (Array.isArray(m.album) ? m.album : []).map(e => ({ id: e.id, date: e.d, title: e.t, recipe: e.r, seconds: e.s, image: Number.isInteger(e.i) ? blobs[e.i] || null : null })),
     current: m.cur ? { recipe: m.cur.r, seconds: m.cur.s,
       state: typeof m.cur.p === 'string' && Number.isInteger(m.cur.n) && m.cur.n > 0 && m.cur.n <= 1000 ? { v: m.cur.v === 2 ? 2 : 1, p: unpackState(m.cur.p, m.cur.n) } : (m.cur.j && typeof m.cur.j === 'object' ? m.cur.j : undefined),

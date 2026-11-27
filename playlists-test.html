@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Playlists test</title><link rel="stylesheet" href="css/app.css"></head>
+<body>
+<main id="home" class="screen"><h1>Playlists test harness</h1><button id="open">Open playlists</button></main>
+<div id="dlg" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+  <div class="sheet" tabindex="-1"><button class="close" id="dlgClose" aria-label="Close"><span aria-hidden="true">✕</span></button><div id="dlgBody"></div></div>
+</div>
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+<div id="announce" class="sr-only" aria-live="polite"></div>
+<script type="module">
+import { playlists, exportPlaylists, importPlaylists, openPlaylistsDialog, cleanRef } from './js/playlists.js';
+import { createMusic } from './js/music.js';
+import { MOODS, composeSong, createSongPlayer } from './js/compose.js';
+const $ = s => document.querySelector(s);
+const h = (tag, props = {}, ...kids) => { const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) { if (v == null || v === false) continue;
+    if (k === 'class') e.className = v; else if (/^on[a-z]+$/.test(k) && typeof v === 'function') e.addEventListener(k.slice(2), v);
+    else if (k === 'style' || k.startsWith('aria-') || k.startsWith('data-') || k === 'role') e.setAttribute(k, v);
+    else if (k in e) e[k] = v; else e.setAttribute(k, v); }
+  e.append(...kids.flat(Infinity).filter(x => x != null && x !== false)); return e; };
+const dialog = (...n) => { const b = $('#dlgBody'); b.replaceChildren(...n.flat(Infinity).filter(x => x != null && x !== false)); const t = b.querySelector('h2'); if (t) t.id = 'dlgTitle'; $('#dlg').classList.remove('hidden'); };
+const closeDialog = () => $('#dlg').classList.add('hidden');
+$('#dlgClose').onclick = closeDialog;
+const toast = t => { $('#toast').textContent = t; $('#toast').classList.remove('hidden'); };
+const announce = t => { $('#announce').textContent = t; };
+const tracks = [], states = [];
+const music = createMusic({ onTrack: t => tracks.push(t), onState: s => states.push(s) });
+const open = () => openPlaylistsDialog({ dialog, closeDialog, h, toast, announce, music });
+$('#open').onclick = open;
+window.T = { playlists, exportPlaylists, importPlaylists, cleanRef, music, open, tracks, states, MOODS, composeSong, createSongPlayer };
+window.ready = true;
+</script></body></html>
