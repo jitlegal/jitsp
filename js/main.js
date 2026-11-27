@@ -23,7 +23,7 @@ const h = (tag, props = {}, ...kids) => { const e = document.createElement(tag);
     else e.setAttribute(k, v);
   }
   e.append(...kids.flat().filter(x => x != null && x !== false)); return e; };
-const APP_VERSION = '2026.11.27-r3';                // shown in Settings so you can tell an update has arrived
+const APP_VERSION = '2026.11.27-r4';                // shown in Settings so you can tell an update has arrived
 const randSeed = () => (Math.random()*2**31)|0;
 const SIZES = [[6,'Easy'],[12,'Relaxed'],[24,'Challenge'],[48,'Expert']];
 const jigsaw = getGame('jigsaw');
@@ -206,7 +206,11 @@ new ResizeObserver(() => { const hgt = Math.ceil($('.bar').getBoundingClientRect
 $('#stage').addEventListener('pointerdown', () => hideTip(), true);    // the first tap anywhere in a game dismisses the tip
 $('#homeBtn').onclick = () => { if(history.state?.play) history.back(); else show('home'); };
 $('#peekBtn').onclick = () => { const i = active?.inst; if(!i?.setPeek) return; const on = !i.peek; i.setPeek(on); $('#peekBtn').setAttribute('aria-pressed', String(on)); announce(on ? 'Showing the picture faintly on the board.' : 'Picture hidden.'); };
-$('#thumbBtn').onclick = () => $('#peekBtn').click();
+// tap the preview to tuck it away into a small corner button (and back); remembered between games
+const paintThumb = () => { const small = !!LS.get('jig.thumbSmall'); $('#thumbBtn').classList.toggle('tucked', small);
+  $('#thumbBtn').setAttribute('aria-label', small ? 'Show the finished picture' : 'Hide the finished picture'); };
+$('#thumbBtn').onclick = () => { LS.set('jig.thumbSmall', !LS.get('jig.thumbSmall')); paintThumb(); active?.inst.resize?.(); };
+paintThumb();
 $('#tidyBtn').onclick = () => { if(active?.inst.tidy){ active.inst.tidy(); saveProgress(); announce('Pieces tidied, edge pieces closest to the board.'); } };
 $('#undoBtn').onclick = () => active?.inst.undo?.();
 $('#edgesBtn').onclick = () => { const i = active?.inst; if(!i?.setFilter) return; const on = i.filter !== 'edges'; i.setFilter(on ? 'edges' : null);

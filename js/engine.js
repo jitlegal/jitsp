@@ -43,7 +43,7 @@ export class Puzzle {
   /** image: canvas/img; opts: {rows, cols, shapeSeed, state?:{id:[bx,by,placed]} (board-relative)} */
   load(image, {rows, cols, shapeSeed, state, legacy}){
     this.img = image; this.rows = rows; this.cols = cols; this.shapeSeed = shapeSeed;
-    this.done = false; this.sel = null; this.drag = null; this.peek = false; this._busy = false; this.gen++; this.filter = null;
+    this.done = false; this.sel = null; this.drag = null; this.peek = false; this._busy = false; this.gen++; this.filter = null; this.hint = null;
     this._resetGesture?.();
     const R = rng(shapeSeed);
     const H = [...Array(rows-1)].map(()=>[...Array(cols)].map(()=>R()<.5?1:-1));
@@ -328,8 +328,8 @@ export class Puzzle {
     ctx.setTransform(c.s*DPR,0,0,c.s*DPR,c.ox*DPR,c.oy*DPR);
     for(const pc of this.pieces) if(this._isLive(pc)) this._drawPiece(ctx, pc, 0, true);
     // Big puzzles: a picked-up piece shows a soft gold area (3×3 spots) where its home is — still a puzzle, much less searching.
-    const sp = this.sel || this.drag;
-    if(sp && this.zoomable && !sp.placed){
+    const sp = this.hint;                                   // only after Help me (step 1), never by default
+    if(sp && !sp.placed && (sp === this.sel || sp === this.drag)){
       const [tx,ty] = this.target(sp), {cw,ch} = this.board;
       ctx.save(); ctx.lineWidth = 5/c.s; ctx.strokeStyle = 'rgba(255,213,79,.95)'; ctx.fillStyle = 'rgba(255,213,79,.14)';
       ctx.fillRect(tx-cw, ty-ch, cw*3, ch*3); ctx.strokeRect(tx-cw, ty-ch, cw*3, ch*3); ctx.restore();
@@ -521,8 +521,18 @@ export class Puzzle {
   _progress(){ this.hooks.onProgress?.(this.placedCount, this.pieces.length); }
 
   /** Glide one piece (the selected one, else an edge piece) into place, moving the view if needed. */
+  /** Help in steps: 1st press picks a piece and shows a gold area around its home; 2nd press places it. */
   help(){
     if(this.done || this._busy) return;
+    if(!this.hint || this.hint.placed || this.hint !== this.sel){
+      const free = p => !p.placed && !p.anim && p !== this.drag;
+      let pc = this.sel && free(this.sel) ? this.sel : null;
+      if(!pc){ for(const p of this.pieces) if(free(p) && (!pc || p.edge > pc.edge || (p.edge === pc.edge && (p.r < pc.r || (p.r === pc.r && p.c < pc.c))))) pc = p; }
+      if(!pc) return;
+      this.hint = pc; this.sel = pc; this._toTop(pc); this.dirty = true; this._follow(pc); this._raf();
+      this.hooks.announce?.('This piece belongs inside the gold area. Tap Help me again to place it for you.'); return;
+    }
+    this.hint = null;
     const free = p => !p.placed && !p.anim && p !== this.drag;
     let pc = this.sel && free(this.sel) ? this.sel : null;
     if(!pc){ let best = null; for(const p of this.pieces) if(free(p) && (!best || p.edge > best.edge || (p.edge === best.edge && (p.r < best.r || (p.r === best.r && p.c < best.c))))) best = p; pc = best; }

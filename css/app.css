@@ -257,3 +257,8 @@ fieldset.opt-group legend{font:600 21px var(--title);margin:0 0 6px;padding:0}
 .choice:active span{transform:scale(.98)}
 :root[data-contrast=high] .choice span{border:3px solid #000}
 :root[data-contrast=high] .choice input:checked+span{background:#000;color:#fff}
+
+/* finished-picture preview can be tucked away */
+#thumbBtn.tucked{width:56px;height:56px;border-radius:50%}
+#thumbBtn.tucked img{display:none}
+#thumbBtn.tucked::after{content:"🖼️";font-size:26px;line-height:48px}
