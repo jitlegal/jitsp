@@ -23,7 +23,7 @@ const h = (tag, props = {}, ...kids) => { const e = document.createElement(tag);
     else e.setAttribute(k, v);
   }
   e.append(...kids.flat().filter(x => x != null && x !== false)); return e; };
-const APP_VERSION = '2026.11.27-r5';                // shown in Settings so you can tell an update has arrived
+const APP_VERSION = '2026.11.28-r7';                // shown in Settings so you can tell an update has arrived
 const randSeed = () => (Math.random()*2**31)|0;
 const SIZES = [[6,'Easy'],[12,'Relaxed'],[24,'Challenge'],[48,'Expert']];
 const jigsaw = getGame('jigsaw');
@@ -117,13 +117,24 @@ const MOODS = { seaside:'bubbly', balloons:'bubbly', tulips:'bubbly', birds:'bub
 const moodFor = r => r.g === 'solitaire' ? 'parlor' : r.src?.t === 'scene' ? (MOODS[r.src.id] || 'warm') : 'warm';
 
 // ---------------- running a game ----------------
-function paintEdges(){ const n = active?.inst.edgesLeft; if(n == null) return;
-  $('#edgesBtn .lbl').textContent = ` Edges · ${n}`; $('#edgesBtn').setAttribute('aria-label', `Show only edge pieces, ${n} left`); }
+// Rings button: build the frame first, then each ring inwards (auto-advances as each ring is finished).
+const ringName = n => n === 0 ? 'Edge' : `Ring ${n + 1}`;
+function paintEdges(){
+  const info = active?.inst.layerInfo?.(); if(!info) return;
+  const label = info.ring == null ? 'Rings' : `${ringName(info.ring)} · ${info.left}`;
+  $('#edgesBtn .lbl').textContent = ' ' + label;
+  $('#edgesBtn').setAttribute('aria-pressed', String(info.on));
+  $('#edgesBtn').setAttribute('aria-label', info.on ? `Showing only the ${ringName(info.ring).toLowerCase()} pieces, ${info.left} left. Tap to show all pieces.` : `Work ring by ring, starting with the ${info.ring == null ? 'edge' : ringName(info.ring).toLowerCase()} pieces`);
+}
 const KEYS = {
   jigsaw: 'Arrow keys pick and move a piece, Enter drops it, N for the next piece, H for help.',
   solitaire: 'Arrow keys move between piles, Enter plays a card, D deals, H for a hint, U to undo.',
   sudoku: 'Arrow keys move, type 1 to 9 to fill a square, N for notes, H for help, U to undo.',
   words: 'Arrow keys move, Enter marks the first and then the last letter of a word, H for help.',
+  tiles: 'Arrow keys move between free tiles, Enter picks a tile, H for help, U to undo, S to shuffle.',
+  freecell: 'Arrow keys move between piles, Enter plays a card, H for a hint, U to undo.',
+  memory: 'Arrow keys move between cards, Enter turns a card over, H for help.',
+  trivia: 'Press 1, 2, 3 or 4 to answer, Enter or N for the next question, H for 50:50.',
 };
 let active = null, thumbURL = null, starting = false;
 const hooks = {
@@ -132,6 +143,9 @@ const hooks = {
   onChange: () => active && saveProgress(),
   onComplete: () => finished(),
   onTouch: () => hideTip(),
+  onLayer: info => { paintEdges(); saveProgress(); if(!info.changed) return;
+    if(info.ring == null){ announce('Every ring is done. All the pieces are showing again.'); toast('🎉 All rings done!', 3000); }
+    else { const msg = `${ringName(info.finished)} done! Now ${ringName(info.ring).toLowerCase()} — ${info.left} pieces.`; announce(msg); toast('✨ ' + msg, 3500); } },
   onZoomable: z => { for(const b of document.querySelectorAll('.bar .zoom')) b.classList.toggle('hidden', !z || !active?.inst.zoomIn); },
   announce,
   avoidRect: () => { const t = $('#thumbBtn').getBoundingClientRect(), c = $('#stage').getBoundingClientRect();
@@ -173,7 +187,7 @@ async function startGame(recipe, { source, embed, resume, daily } = {}){
     // toolbar: only the buttons this game supports
     $('#undoBtn').classList.toggle('hidden', !inst.undo);
     $('#tidyBtn').classList.toggle('hidden', !inst.tidy);
-    $('#edgesBtn').classList.toggle('hidden', !(inst.setFilter && inst.edgesUseful)); $('#edgesBtn').setAttribute('aria-pressed', 'false'); paintEdges();
+    $('#edgesBtn').classList.toggle('hidden', !(inst.setFilter && inst.edgesUseful)); paintEdges();
     $('#peekBtn').classList.toggle('hidden', !inst.setPeek); $('#peekBtn').setAttribute('aria-pressed', 'false');
     hooks.onZoomable(game.usesPicture && recipe.n >= 49);
     const p = inst.progress(); hooks.onProgress(p.done, p.total);
@@ -188,9 +202,13 @@ async function startGame(recipe, { source, embed, resume, daily } = {}){
   } finally { starting = false; }
 }
 
-let tipT, tipGame = null;
-function showTip(text, id){ tipGame = id; $('#tip').textContent = text; $('#tip').classList.remove('hidden'); clearTimeout(tipT); tipT = setTimeout(hideTip, 9000); }
-function hideTip(){ if(!$('#tip').classList.contains('hidden')){ $('#tip').classList.add('hidden'); if(tipGame) LS.set('jig.tipSeen.' + tipGame, 1); } }
+// First-time tip: a short "How to play" card before play starts, so nothing moves under the player's finger later.
+let tipGame = null;
+function showTip(text, id){ tipGame = id;
+  dialog(h('h2', {}, 'How to play'), h('p', { class:'big' }, text),
+    h('button', { class:'primary', style:'width:100%', autofocus:true, onclick: () => { LS.set('jig.tipSeen.' + id, 1); closeDialog(); } }, 'Got it'));
+}
+function hideTip(){}
 
 // gentle clock: only counts while a game is on screen
 setInterval(() => {
@@ -213,8 +231,8 @@ $('#thumbBtn').onclick = () => { LS.set('jig.thumbSmall', !LS.get('jig.thumbSmal
 paintThumb();
 $('#tidyBtn').onclick = () => { if(active?.inst.tidy){ active.inst.tidy(); saveProgress(); announce('Pieces tidied, edge pieces closest to the board.'); } };
 $('#undoBtn').onclick = () => active?.inst.undo?.();
-$('#edgesBtn').onclick = () => { const i = active?.inst; if(!i?.setFilter) return; const on = i.filter !== 'edges'; i.setFilter(on ? 'edges' : null);
-  $('#edgesBtn').setAttribute('aria-pressed', String(on)); announce(on ? 'Showing only edge pieces. Build the frame first!' : 'Showing all pieces again.'); };
+$('#edgesBtn').onclick = () => { const i = active?.inst; if(!i?.setFilter) return; const on = i.filter !== 'edges'; i.setFilter(on ? 'edges' : null); paintEdges(); saveProgress();
+  const info = i.layerInfo(); announce(on ? `Showing only the ${ringName(info.ring).toLowerCase()} pieces — ${info.left} to place. The next ring opens by itself when you finish.` : 'Showing all pieces again.'); };
 $('#helpBtn').onclick = () => active?.inst.help();
 $('#zoomIn').onclick = () => active?.inst.zoomIn?.();
 $('#zoomOut').onclick = () => active?.inst.zoomOut?.();
@@ -230,22 +248,46 @@ async function finished(){
   current.clear(g.game.id);
   const pic = g.img || g.inst.snapshot?.() || null;
   if(pic) g.pic = pic;
-  album.add({ id: Date.now(), date: today(), title: g.title, recipe: g.recipe, seconds: g.seconds, stats: g.inst.stats?.() || null,
-    thumb: pic ? await toBlob(pic, .8, 480) : null, full: pic ? await toBlob(pic, .85, g.recipe.n > 100 ? 2600 : 1400) : null, embed: g.embed || null });
+  // save to the scrapbook in the background: the celebration should never wait for image encoding
+  (async () => { try{ await album.add({ id: Date.now(), date: today(), title: g.title, recipe: g.recipe, seconds: g.seconds, stats: g.inst.stats?.() || null,
+    thumb: pic ? await toBlob(pic, .8, 480) : null, full: pic ? await toBlob(pic, .85, g.recipe.n > 100 ? 2600 : 1400) : null, embed: g.embed || null }); }catch(_){} })();
   setTimeout(async () => {
-    const picURL = pic ? (g.img ? thumbURL : URL.createObjectURL(await toBlob(pic, .85, 900))) : null;
+    // picture games show their picture; others show their snapshot canvas directly (no slow image encoding)
+    let picEl = null;
+    if(g.img && thumbURL) picEl = h('img', { class:'win-pic', src: thumbURL, alt: g.title });
+    else if(pic){ picEl = pic; pic.classList.add('win-pic'); pic.setAttribute('role', 'img'); pic.setAttribute('aria-label', `The finished ${g.game.noun}`); }
     dialog(
+      celebrate(),
       h('h2', {}, name ? `Wonderful, ${name}!` : 'Wonderful!'),
-      picURL ? h('img', { class:'win-pic', src: picURL, alt: g.title }) : null,
+      picEl,
       h('p', { class:'big' }, g.game.finishText(g.recipe, g.seconds, g.inst.stats?.() || {})),
       st ? h('p', {}, st.count > 1 ? `🔥 That's ${st.count} days in a row!` : `🔥 Today’s ${isDaily ? 'puzzle' : g.game.id === 'solitaire' ? 'deal' : g.game.noun} is done. See you tomorrow for a new one!`) : null,
       h('div', { class:'stack' },
         h('button', { class:'primary', autofocus:true, onclick: () => shareDialog(g, true) }, '💌 Share with family'),
-        h('button', { class:'secondary', onclick: () => { closeDialog(); show('home'); } }, g.game.id === 'jigsaw' ? '🧩 Another puzzle' : `${g.game.emoji} Another game`),
-        h('button', { class:'secondary', onclick: closeDialog }, g.game.usesPicture ? '🖼️ Look at the picture' : '👀 Look at the table')));
+        h('button', { class:'secondary', onclick: () => { closeDialog(); anotherOfSame(g); } }, `${g.game.emoji} Another ${g.game.noun}`),
+        h('button', { class:'secondary', onclick: () => { closeDialog(); show('home'); } }, '🏠 Choose a different game'),
+        h('button', { class:'secondary', onclick: closeDialog }, g.game.usesPicture ? '🖼️ Look at the finished picture' : '👀 Look at the finished game')));
     announce(`Finished! ${g.game.finishText(g.recipe, g.seconds, g.inst.stats?.() || {})}`);
     chime(true);
-  }, 650);
+  }, 450);
+}
+
+/** A short, gentle burst of confetti (skipped when "less movement" is on). */
+function celebrate(){
+  if(document.documentElement.dataset.motion === 'reduce') return null;
+  const box = h('div', { class:'confetti', 'aria-hidden':'true' });
+  for(let i = 0; i < 28; i++){ const s = h('span', { class:'c' + (i % 6) }); s.style.left = (Math.random()*100).toFixed(1) + '%';
+    s.style.animationDelay = (Math.random()*0.6).toFixed(2) + 's'; s.style.setProperty('--drift', ((Math.random()-.5)*160).toFixed(0) + 'px'); box.append(s); }
+  setTimeout(() => box.remove(), 3200); return box;
+}
+/** Finish screen: start another of the same game straight away, with the same choices. */
+function anotherOfSame(g){
+  if(g.game.id === 'jigsaw'){
+    const sc = pickScene(randSeed());
+    return startGame(newJigsaw({ t:'scene', id: sc, s: randSeed() }, g.recipe.n));
+  }
+  const opts = { ...Object.fromEntries((g.game.options||[]).map(o => [o.key, o.default])), ...(settings.get()['opts_' + g.game.id] || {}) };
+  startGame(g.game.newRecipe(randSeed(), opts));
 }
 
 // ---------------- sharing ----------------
@@ -352,8 +394,8 @@ function guardNew(id, go){
 }
 $('#todayBtn').onclick = () => guardNew('jigsaw', () => startGame(today$()));
 // Daily games: the date (and the game) pick the seed, so everyone gets the same game today.
-const DAILY = ['solitaire', 'words', 'sudoku'];
-const DAILY_OPTS = { solitaire: { draw: 1 }, sudoku: { level: 'easy' }, words: { size: 10, theme: 'any' } };
+const DAILY = ['solitaire', 'tiles', 'words', 'sudoku', 'trivia'];
+const DAILY_OPTS = { solitaire: { draw: 1 }, sudoku: { level: 'easy' }, words: { size: 10, theme: 'any' }, tiles: { layout: 'gentle' }, trivia: { length: 10, topic: 'any' } };
 function startDaily(g){
   const seed = ([...(today() + g.id)].reduce((a,c) => Math.imul(a ^ c.charCodeAt(0), 16777619), 2166136261)) >>> 1;
   const opts = { ...Object.fromEntries((g.options||[]).map(o => [o.key, o.default])), ...(settings.get()['opts_' + g.id] || {}), ...(DAILY_OPTS[g.id] || {}) };

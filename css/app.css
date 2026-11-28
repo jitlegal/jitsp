@@ -262,3 +262,15 @@ fieldset.opt-group legend{font:600 21px var(--title);margin:0 0 6px;padding:0}
 #thumbBtn.tucked{width:56px;height:56px;border-radius:50%}
 #thumbBtn.tucked img{display:none}
 #thumbBtn.tucked::after{content:"🖼️";font-size:26px;line-height:48px}
+
+/* finish screen confetti: soft, short, behind the text */
+.confetti{position:absolute;inset:0;overflow:hidden;pointer-events:none;border-radius:inherit}
+.confetti span{position:absolute;top:-14px;width:10px;height:16px;border-radius:3px;opacity:0;animation:fall 2.6s ease-in forwards}
+.confetti .c0{background:#f2b632}.confetti .c1{background:#e85d75}.confetti .c2{background:#3d8bd9}.confetti .c3{background:#4caf50}.confetti .c4{background:#9c6ade}.confetti .c5{background:#ff8a3d}
+@keyframes fall{0%{opacity:1;transform:translate(0,0) rotate(0)}100%{opacity:0;transform:translate(var(--drift,0),520px) rotate(540deg)}}
+:root[data-motion=reduce] .confetti{display:none}
+
+/* while the first-time tip shows, the game starts below it */
+
+.win-pic{display:block;width:100%;height:auto}
+.win-pic{max-height:40vh;width:auto;max-width:100%;margin:6px auto}

@@ -33,7 +33,7 @@ export class Puzzle {
     this.sel = null; this.drag = null; this.done = false; this.avoid = null;
     this.cam = {s:1, ox:0, oy:0}; this.layerCam = null; this.dirty = true;
     this.sprites = new Map(); this.spriteScale = 0; this.spritePx = 0;   // piece pictures cached at the current zoom
-    this.filter = null;                 // 'edges' → only edge pieces are shown at full strength and can be picked
+    this.ringOn = null;                 // ring being worked on (0 = edge pieces, 1 = one ring in, …); null = all pieces
     this.gen = 0;                       // bumps on every load: animations from an older puzzle stop themselves
     this._bind();
   }
@@ -43,7 +43,7 @@ export class Puzzle {
   /** image: canvas/img; opts: {rows, cols, shapeSeed, state?:{id:[bx,by,placed]} (board-relative)} */
   load(image, {rows, cols, shapeSeed, state, legacy}){
     this.img = image; this.rows = rows; this.cols = cols; this.shapeSeed = shapeSeed;
-    this.done = false; this.sel = null; this.drag = null; this.peek = false; this._busy = false; this.gen++; this.filter = null; this.hint = null;
+    this.done = false; this.sel = null; this.drag = null; this.peek = false; this._busy = false; this.gen++; this.ringOn = null; this.hint = null;
     this._resetGesture?.();
     const R = rng(shapeSeed);
     const H = [...Array(rows-1)].map(()=>[...Array(cols)].map(()=>R()<.5?1:-1));
@@ -56,6 +56,7 @@ export class Puzzle {
       id:r*cols+c, r, c, placed:false, glow:0, x:0, y:0,
       shape:{ t:r>0?-H[r-1][c]:0, b:r<rows-1?H[r][c]:0, l:c>0?-V[r][c-1]:0, r:c<cols-1?V[r][c]:0 },
       edge:(r===0)+(c===0)+(r===rows-1)+(c===cols-1),
+      ring: Math.min(r, c, rows-1-r, cols-1-c),        // 0 = border, 1 = one ring in, …
     });
     for(const pc of this.pieces) pc.path = this._path(pc.shape);
     this._dropSprites();
@@ -132,11 +133,13 @@ export class Puzzle {
     this._edge(p,w,h,0,h,sh.b); this._edge(p,0,h,0,0,sh.l); p.closePath(); return p;
   }
 
-  /** Spread loose pieces in neat rows around the board. Tidy puts edge pieces closest to the board. */
+  /** Spread loose pieces in neat rows around the board. Tidy groups them (the ring being worked on, or the
+   *  edge pieces, nearest the board) but shuffles within each group, so it never gives away the picture's order. */
   tidy(shuffle=false){
-    const list = this.pieces.filter(p=>!p.placed);
-    if(shuffle){ for(let i=list.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; [list[i],list[j]]=[list[j],list[i]]; } }
-    else list.sort((a,b)=>b.edge-a.edge || a.r-b.r || a.c-b.c);
+    const mix = a => { for(let i=a.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; [a[i],a[j]]=[a[j],a[i]]; } return a; };
+    const loose = this.pieces.filter(p=>!p.placed);
+    const focus = this.ringOn != null ? this.ringOn : 0;
+    const list = shuffle ? mix(loose) : [...mix(loose.filter(p => p.ring === focus)), ...mix(loose.filter(p => p.ring !== focus))];
     this._layout(this.k);                                   // fresh table, so repeated tidies don't creep bigger
     const {pad} = this.board, slots = this._slots(list.length, this._minGap());
     if(slots.length < list.length){ this._fit(); slots.splice(0, slots.length, ...this._slots(list.length, this._minGap())); }
@@ -307,7 +310,7 @@ export class Puzzle {
       for(const pc of this.pieces){
         if(this._isLive(pc)) continue;
         if(pc.x+b.cw < vx0 || pc.y+b.ch < vy0 || pc.x > vx1 || pc.y > vy1) continue;    // off screen
-        const l = pc.placed && lod === 0 ? 1 : lod, faded = this.filter === 'edges' && !pc.placed && !pc.edge;
+        const l = pc.placed && lod === 0 ? 1 : lod, faded = this._hidden(pc);
         if(faded) g.globalAlpha = .22;
         if(l === 2) this._drawPiece(g, pc, 2, false);
         else g.drawImage(this._sprite(pc, l), pc.x-pad, pc.y-pad, b.cw+2*pad, b.ch+2*pad);
@@ -452,7 +455,7 @@ export class Puzzle {
     // ---- keyboard play (WCAG 2.1.1): Tab to the table, arrows pick a piece, arrows move it, Enter drops it ----
     cv.tabIndex = 0;
     const say = t => this.hooks.announce?.(t);
-    const loose = () => this.pieces.filter(p => !p.placed && !p.anim);
+    const loose = () => this.pieces.filter(p => !p.placed && !p.anim && !this._hidden(p));
     const pickNext = dir => {
       const L = loose(); if(!L.length) return;
       L.sort((a,b) => a.y - b.y || a.x - b.x);                 // reading order on the table
@@ -518,7 +521,8 @@ export class Puzzle {
       if(gen !== this.gen) return;
       pc.glow = 1; this.dirty = true;
       const f = () => { if(gen !== this.gen) return; pc.glow -= .04; if(pc.glow <= 0){ pc.glow = 0; this.dirty = true; } this._raf(); if(pc.glow>0) requestAnimationFrame(f); }; f();
-      if(last && !this.done){ this.done = true; this.sel = null; this.dirty = true; if(this.zoomable) this.home(); this.draw(); this.hooks.onComplete?.(); }
+      if(last && !this.done){ this.done = true; this.sel = null; this.ringOn = null; this.hooks.onLayer?.({ ...this.layerInfo(), changed: false }); this.dirty = true; if(this.zoomable) this.home(); this.draw(); this.hooks.onComplete?.(); }
+      else if(this.ringOn != null && !this._layerLeft(this.ringOn)) this._advanceLayer();
       this._changed();
     });
   }
@@ -532,7 +536,7 @@ export class Puzzle {
     if(!this.hint || this.hint.placed || this.hint !== this.sel){
       const free = p => !p.placed && !p.anim && p !== this.drag;
       let pc = this.sel && free(this.sel) ? this.sel : null;
-      if(!pc){ for(const p of this.pieces) if(free(p) && (!pc || p.edge > pc.edge || (p.edge === pc.edge && (p.r < pc.r || (p.r === pc.r && p.c < pc.c))))) pc = p; }
+      if(!pc){ for(const p of this.pieces) if(free(p) && !this._hidden(p) && (!pc || p.edge > pc.edge || (p.edge === pc.edge && (p.r < pc.r || (p.r === pc.r && p.c < pc.c))))) pc = p; }
       if(!pc) return;
       const span = this.pieces.length >= 100 ? 3 : 2;
       this.hintOff = [Math.round((Math.random()*2-1)*span), Math.round((Math.random()*2-1)*span)];
@@ -542,7 +546,7 @@ export class Puzzle {
     this.hint = null;
     const free = p => !p.placed && !p.anim && p !== this.drag;
     let pc = this.sel && free(this.sel) ? this.sel : null;
-    if(!pc){ let best = null; for(const p of this.pieces) if(free(p) && (!best || p.edge > best.edge || (p.edge === best.edge && (p.r < best.r || (p.r === best.r && p.c < best.c))))) best = p; pc = best; }
+    if(!pc){ let best = null; for(const p of this.pieces) if(free(p) && !this._hidden(p) && (!best || p.edge > best.edge || (p.edge === best.edge && (p.r < best.r || (p.r === best.r && p.c < best.c))))) best = p; pc = best; }
     if(!pc) return;
     this._busy = true; const gen = this.gen;
     const [tx,ty] = this.target(pc), {cw,ch} = this.board;
@@ -550,7 +554,26 @@ export class Puzzle {
     if(this.zoomable && !(this._visible(tx,ty) && this._visible(tx+cw,ty+ch))) this._camTo(this.cam.s, tx+cw/2, ty+ch/2, 400, go);
     else go();
   }
-  _hidden(pc){ return this.filter === 'edges' && !pc.edge; }
-  setFilter(f){ this.filter = f; if(this.sel && this._hidden(this.sel)) this.sel = null; this.dirty = true; this.draw(); }
+  // ---------- rings: build the frame first, then each ring inwards ----------
+  _hidden(pc){ return this.ringOn != null && !pc.placed && pc.ring !== this.ringOn; }
+  _layerLeft(n){ let k = 0; for(const p of this.pieces) if(!p.placed && p.ring === n) k++; return k; }
+  _nextLayer(from = 0){ const max = Math.max(...this.pieces.map(p => p.ring)); for(let n = from; n <= max; n++) if(this._layerLeft(n)) return n; return null; }
+  get filter(){ return this.ringOn != null ? 'edges' : null; }
+  layerInfo(){ const n = this.ringOn != null ? this.ringOn : this._nextLayer(0); return { on: this.ringOn != null, ring: n, left: n == null ? 0 : this._layerLeft(n) }; }
+  /** Turn rings on (starting at the outermost unfinished ring) or off. */
+  setLayer(on){
+    this.ringOn = on ? this._nextLayer(0) : null;
+    if(this.sel && this._hidden(this.sel)) this.sel = null;
+    if(this.hint && this._hidden(this.hint)) this.hint = null;
+    this.dirty = true; this.draw(); this.hooks.onLayer?.({ ...this.layerInfo(), changed: false });
+  }
+  setFilter(f){ this.setLayer(!!f); }                     // older name kept for the shell
+  _advanceLayer(){
+    const was = this.ringOn, next = this._nextLayer(was + 1);
+    this.ringOn = next; if(this.sel && this._hidden(this.sel)) this.sel = null;
+    if(next != null) this.tidy();                          // bring the new ring's pieces nearest the board
+    this.dirty = true; this.draw();
+    this.hooks.onLayer?.({ ...this.layerInfo(), changed: true, finished: was });
+  }
   setPeek(on){ this.peek = on; this.dirty = true; this.draw(); }
 }
