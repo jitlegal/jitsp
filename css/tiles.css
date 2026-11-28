@@ -1,0 +1,54 @@
+/* Tile Match — big ivory tiles with visible thickness; sizes come from JS: --tw --th (tile), --e (edge). */
+.tm{position:absolute;inset:0;overflow:hidden;touch-action:manipulation;user-select:none;-webkit-user-select:none;
+  font-family:var(--font,'Atkinson Hyperlegible',system-ui,sans-serif);--focus:#ffd54f}
+.tm-sr{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+.tm-board{position:absolute;inset:0}
+.tm-tile{position:absolute;width:var(--tw);height:var(--th);min-height:0;padding:0;margin:0;box-sizing:border-box;
+  border:2px solid #6f5e42;border-radius:calc(var(--tw)*.12);background:linear-gradient(#fffdf7,#f3ead3);color:#111;cursor:pointer;
+  box-shadow:calc(var(--e)*.5) calc(var(--e)*.5) 0 #dcc89e,var(--e) var(--e) 0 #b39864,calc(var(--e) + 3px) calc(var(--e) + 4px) 7px rgba(0,0,0,.5);
+  transition:opacity .35s,scale .35s,translate .25s,filter .2s}
+.tm-tile:active{transform:none}
+.tm-face{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.tm-num{font:700 36px var(--font,system-ui,sans-serif)}
+/* blocked: dimmed AND a hatch texture (never colour alone) */
+.tm-tile.blocked{background:#e4dac3;cursor:default}
+.tm-tile.blocked .tm-face{opacity:.62}
+.tm-tile.blocked::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:repeating-linear-gradient(135deg,rgba(70,50,20,.2) 0 3px,transparent 3px 9px)}
+/* hints on: free tiles get a thick dark rim */
+.hints .tm-tile.free{border:4px solid #0f3d2a}
+.tm-tile.sel{translate:0 calc(var(--th)*-.1);outline:4px solid #0b2a7a;outline-offset:1px;
+  box-shadow:0 0 0 8px #fff,0 0 22px 10px rgba(255,213,79,.95),calc(var(--e) + 3px) calc(var(--e) + 10px) 10px rgba(0,0,0,.5)}
+.tm-tile.hint{outline:5px dashed var(--focus);outline-offset:3px;animation:tm-pulse 1.1s ease-in-out infinite}
+.tm-tile:focus-visible{outline:5px solid var(--focus);outline-offset:3px;box-shadow:0 0 0 9px #000}
+.tm-tile.gone{opacity:0;scale:.5;translate:0 -40%;pointer-events:none}
+.tm-tile.off{display:none}
+.tm-tile.shake{animation:tm-shake .42s ease}
+.tm.shuf .tm-tile{animation:tm-fade .45s ease}
+@keyframes tm-shake{0%,100%{translate:0}20%{translate:-6px 0}40%{translate:5px 0}60%{translate:-4px 0}80%{translate:3px 0}}
+@keyframes tm-pulse{50%{outline-offset:7px}}
+@keyframes tm-fade{0%{opacity:.2}100%{opacity:1}}
+.tm-msg{position:absolute;left:50%;bottom:16px;transform:translate(-50%,8px);max-width:min(92%,560px);padding:12px 20px;border-radius:14px;
+  background:var(--paper,#fffaf0);color:var(--ink,#2b2118);font-size:20px;line-height:1.35;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,.4);
+  opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;z-index:20000}
+.tm-msg.show{opacity:1;transform:translate(-50%,0)}
+.tm-stuck{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;gap:12px;align-items:stretch;
+  background:var(--paper,#fffaf0);color:var(--ink,#2b2118);padding:20px;border-radius:18px;box-shadow:0 8px 28px rgba(0,0,0,.5);z-index:20001;max-width:min(92%,420px)}
+.tm-stuck.show{display:flex}
+.tm-stuck p{margin:0;font-size:21px;font-weight:700;text-align:center}
+.tm-btn{min-height:56px;font-size:21px;font-weight:700;background:var(--gold,#f2b632);color:#2b2118}
+.tm-btn+.tm-btn{background:#efe4cc}
+@media (prefers-reduced-motion: reduce){.tm-tile,.tm-msg{transition:none!important;animation:none!important}.tm.shuf .tm-tile{animation:none}}
+:root[data-motion=reduce] .tm-tile,:root[data-motion=reduce] .tm-msg{transition:none!important;animation:none!important}
+:root[data-contrast=high] .tm{--focus:#ffd400}
+:root[data-contrast=high] .tm-tile{background:#fff;border:3px solid #000;box-shadow:var(--e) var(--e) 0 #000}
+:root[data-contrast=high] .tm-tile.blocked{background:#cfcfcf}
+:root[data-contrast=high] .tm-tile.blocked::after{background:repeating-linear-gradient(135deg,rgba(0,0,0,.45) 0 3px,transparent 3px 9px)}
+:root[data-contrast=high] .hints .tm-tile.free{border:5px solid #000}
+@media (forced-colors: active){
+  .tm-tile{background:Canvas;border:2px dashed GrayText;forced-color-adjust:none;color:CanvasText}
+  .tm-tile.free{border:4px solid ButtonText}
+  .tm-tile.sel,.tm-tile.hint{outline:5px solid Highlight}
+  .tm-face .f,.tm-face text{fill:CanvasText}
+  .tm-tile.blocked::after{background:none}
+}

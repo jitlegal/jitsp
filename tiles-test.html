@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tile Match test harness</title>
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/tiles.css">
+<style>
+  /* developer test page only (never part of the app) */
+  html,body{height:100%;margin:0;background:#24463c}
+  #stage{position:fixed;inset:0}
+</style>
+</head>
+<body>
+<!-- Query: ?s=123&l=gentle|classic|tower&h=1|0&contrast=high&motion=reduce -->
+<main id="stage" aria-label="Tile Match test"></main>
+<div id="announce" class="sr-only" aria-live="polite"></div>
+<script type="module">
+  import G from './js/games/tiles.js';
+  const q = new URLSearchParams(location.search);
+  if (q.get('contrast')) document.documentElement.dataset.contrast = q.get('contrast');
+  if (q.get('motion')) document.documentElement.dataset.motion = q.get('motion');
+  const T = window.T = { said: [], completed: 0, placed: 0, changes: 0, progress: null, G };
+  const hooks = {
+    announce: t => { T.said.push(t); document.getElementById('announce').textContent = t; },
+    onProgress: (d, t) => { T.progress = [d, t]; }, onChange: () => { T.changes++; },
+    onComplete: () => { T.completed++; }, onPlace: () => { T.placed++; }, onTouch: () => {}, onZoomable: () => {},
+  };
+  const t0 = performance.now();
+  T.recipe = G.newRecipe(+(q.get('s') || 2026), { layout: q.get('l') || 'gentle', hints: q.get('h') === '0' ? 0 : 1 });
+  T.genMs = performance.now() - t0;
+  T.inst = G.create(document.getElementById('stage'), hooks);
+  await T.inst.load(T.recipe, {});
+  addEventListener('resize', () => T.inst.resize());
+  T.ready = true;
+</script>
+</body>
+</html>
