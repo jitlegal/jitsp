@@ -1,0 +1,37 @@
+/* Memory — big cards, flip with a gentle turn (none with reduced motion). Sizes from JS: --cw, --ch. */
+.mem{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box;overflow:auto;
+  font-family:var(--font,'Atkinson Hyperlegible',system-ui,sans-serif);user-select:none;-webkit-user-select:none}
+.mem-sr{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+.mem-grid{display:grid;gap:10px;touch-action:manipulation;margin:auto}
+.mem-row{display:contents}
+.mem-card{width:var(--cw);height:var(--ch);cursor:pointer;border-radius:14px;outline:none}
+.mem-card:focus-visible{outline:5px solid #ffd54f;outline-offset:3px}
+.mem-inner{position:relative;width:100%;height:100%}
+.mem-card.up .mem-back,.mem-card:not(.up) .mem-face{visibility:hidden}
+.mem-card.up .mem-inner{animation:mem-flip .3s ease}
+@keyframes mem-flip{0%{transform:scaleX(.05)}100%{transform:scaleX(1)}}
+.mem-back,.mem-face{position:absolute;inset:0;border-radius:14px;overflow:hidden;box-sizing:border-box}
+.mem-back{background:repeating-linear-gradient(45deg,#1558b0 0 12px,#2a6fc9 12px 24px);border:4px solid #fffaf0;box-shadow:0 4px 10px rgba(0,0,0,.35);
+  display:flex;align-items:center;justify-content:center}
+.mem-q{color:#fff;font-weight:700;font-size:calc(min(var(--cw),var(--ch)) * .42);text-shadow:0 2px 0 #0b2f63}
+.mem-face{background:var(--bg,#fffaf0);border:4px solid #fffaf0;box-shadow:0 4px 10px rgba(0,0,0,.35);
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-start}
+.mem-art{width:100%;height:62%;object-fit:cover;display:block;opacity:.55}
+.mem-emoji{position:absolute;top:31%;left:50%;transform:translate(-50%,-50%);font-size:calc(min(var(--cw),var(--ch) * .8) * .5 * var(--card-scale,1));line-height:1}
+.mem-name{flex:1;display:flex;align-items:center;justify-content:center;width:100%;background:#fffaf0;color:#1d1611;font-weight:700;text-align:center;
+  font-size:min(28px,calc(var(--cw) * .15 * var(--card-scale,1)),calc(var(--cw) * 1.55 / var(--len,6)));line-height:1.05;padding:0 2px;box-sizing:border-box;white-space:nowrap;overflow:hidden}
+.mem-card.matched .mem-face{border-color:#2e7d32;box-shadow:0 0 0 3px #2e7d32}
+.mem-card.matched .mem-name::before{content:"✓ ";color:#1b6e2a}
+.mem-card.mem-peek .mem-face{border-color:#e0a11b;box-shadow:0 0 0 5px #ffd54f}
+.mem-won .mem-card.matched .mem-face{box-shadow:0 0 0 4px #ffd54f}
+:root[data-contrast=high] .mem-back{background:#0033aa;border:4px solid #000}
+:root[data-contrast=high] .mem-face{border:4px solid #000;box-shadow:none}
+:root[data-contrast=high] .mem-art{opacity:.3}
+:root[data-contrast=high] .mem-name{background:#fff;color:#000;border-top:3px solid #000}
+:root[data-contrast=high] .mem-card.matched .mem-face{border-color:#000;box-shadow:0 0 0 4px #1b6e2a}
+:root[data-motion=reduce] .mem-card .mem-inner{animation:none}
+@media (prefers-reduced-motion:reduce){.mem-card .mem-inner{animation:none}}
+@media (forced-colors:active){
+  .mem-back,.mem-face{border:3px solid CanvasText}.mem-card:focus-visible{outline-color:Highlight}
+  .mem-card.matched .mem-face,.mem-card.mem-peek .mem-face{border:5px solid Highlight}
+}

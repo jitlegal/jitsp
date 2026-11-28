@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memory test</title>
+<link rel="stylesheet" href="css/app.css"><link rel="stylesheet" href="css/memory.css">
+</head><body>
+<main><div id="host" style="position:fixed;inset:0;background:#24463c"></div></main>
+<div id="announce" class="sr-only" aria-live="polite"></div>
+<script type="module">
+import memory from './js/games/memory.js';
+const log = [];
+const hooks = { announce: t => { log.push(t); document.getElementById('announce').textContent = t; },
+  onProgress: (d, t) => log.push(`progress ${d}/${t}`), onChange: () => {}, onComplete: () => log.push('COMPLETE'), onPlace: last => log.push('place ' + last), onTouch: () => {} };
+window.T = { memory, log, hooks, async mount(recipe, state){ const host = document.getElementById('host'); if (window.T.inst) window.T.inst.destroy(); host.replaceChildren();
+  window.T.inst = memory.create(host, hooks); await window.T.inst.load(recipe, { state }); return window.T.inst; } };
+addEventListener('resize', () => window.T.inst?.resize());
+window.ready = true;
+</script>
+</body></html>
