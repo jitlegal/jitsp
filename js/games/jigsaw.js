@@ -62,14 +62,18 @@ export default {
             if(Array.isArray(v) && Number.isFinite(+v[0]) && Number.isFinite(+v[1])) clean[id] = [Math.min(7, Math.max(-6, +v[0])), Math.min(7, Math.max(-6, +v[1])), v[2] ? 1 : 0]; }
           p = Object.keys(clean).length ? clean : null; }
         engine.load(image, { rows, cols, shapeSeed: recipe.k, state: p || undefined, legacy: !!p && state.v !== 2 });
+        // resume the ring being worked on, if any
+        const L = state && Number.isInteger(state.L) ? state.L : null;
+        if(L != null && L >= 0){ engine.ringOn = engine._layerLeft(L) ? L : engine._nextLayer(L); engine.dirty = true; engine.draw(); }
       },
-      state: () => ({ v:2, p: engine.state() }),
+      state: () => ({ v:2, p: engine.state(), ...(engine.ringOn != null ? { L: engine.ringOn } : {}) }),
       progress: () => ({ done: engine.placedCount, total: engine.pieces.length }),
       get done(){ return engine.done; },
       help: () => engine.help(),
       tidy: () => engine.tidy(),
       setPeek: on => engine.setPeek(on),
-      setFilter: f => engine.setFilter(f), get filter(){ return engine.filter; }, get edgesUseful(){ return engine.pieces.length >= 24; }, get edgesLeft(){ return engine.pieces.filter(p => p.edge && !p.placed).length; },
+      setFilter: f => engine.setFilter(f), get filter(){ return engine.filter; }, get edgesUseful(){ return engine.pieces.length >= 24; },
+      layerInfo: () => engine.layerInfo(),
       get peek(){ return engine.peek; },
       zoomIn: () => engine.zoomIn(), zoomOut: () => engine.zoomOut(), showAll: () => engine.showAll(),
       resize: () => engine.resize(),
