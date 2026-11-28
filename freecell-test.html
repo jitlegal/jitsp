@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreeCell test harness</title>
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/cards2.css">
+<style>
+  html,body{margin:0;height:100%;background:var(--felt)}
+  #host{position:fixed;inset:0}
+</style>
+</head>
+<body>
+<!-- Developer harness: ?seed=123&colors=4|2&auto=1|0&scale=1..2&contrast=high&motion=reduce&announce=hook&top=px -->
+<main id="host" aria-label="FreeCell test"></main>
+<script type="module">
+  import G from './js/games/freecell.js';
+  const q = new URLSearchParams(location.search);
+  if (q.get('contrast')) document.documentElement.dataset.contrast = q.get('contrast');
+  if (q.get('motion')) document.documentElement.dataset.motion = q.get('motion');
+  const host = document.getElementById('host');
+  if (q.get('scale')) host.style.setProperty('--card-scale', q.get('scale'));
+  if (q.get('top')) host.style.top = q.get('top') + 'px';
+  window.events = []; window.said = [];
+  const hooks = {
+    onProgress: (d, t) => events.push(['progress', d, t]), onChange: () => events.push(['change']),
+    onComplete: () => events.push(['complete']), onPlace: last => events.push(['place', last]),
+    onTouch: () => {}, onZoomable: z => events.push(['zoomable', z]),
+  };
+  if (q.get('announce') === 'hook') hooks.announce = t => said.push(t);
+  const t0 = performance.now();
+  const recipe = G.newRecipe(+(q.get('seed') || 2024), { colors: +(q.get('colors') || 4), auto: +(q.get('auto') ?? 1) });
+  window.solveMs = performance.now() - t0;
+  window.G = G; window.recipe = recipe;
+  window.game = G.create(host, hooks);
+  await game.load(recipe, {});
+  addEventListener('resize', () => game.resize());
+  window.ready = true;
+</script>
+</body>
+</html>
