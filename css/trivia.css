@@ -1,0 +1,42 @@
+/* Gentle Trivia — one big cream card: question, four large numbered answers, a kind result with a fact. */
+.tv{position:absolute;inset:0;overflow:auto;padding:16px;display:flex;justify-content:center;align-items:flex-start;font-size:calc(20px * var(--card-scale,1))}
+.tv-sr{position:absolute!important;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;padding:0}
+.tv-card{width:100%;max-width:960px;margin:auto 0;background:var(--cream,#fbf4e6);color:#2b2118;border-radius:22px;padding:20px 24px 24px;box-shadow:0 8px 24px rgba(0,0,0,.3)}
+.tv-top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 16px}
+.tv-meta,.tv-score{margin:0;font-weight:700;color:#54453a;font-size:.95em}
+.tv-q{font:700 1.4em/1.3 var(--font,system-ui,sans-serif);margin:12px 0 18px;color:#1d1611}
+.tv-q:focus{outline:none}.tv-q:focus-visible{outline:4px solid #1a5fb4;outline-offset:4px;border-radius:6px}
+.tv-answers{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.tv-ans{min-height:72px;display:flex;align-items:center;gap:14px;text-align:left;padding:12px 16px;border:3px solid #6b5a48;border-radius:16px;background:#fff;color:#1d1611;font-size:1.1em;font-weight:700;line-height:1.25}
+.tv-ans:hover:not([aria-disabled]){background:#fff6dc}
+.tv-ans:focus-visible,.tv-next:focus-visible,.tv-fifty:focus-visible,.tv-result:focus-visible{outline:4px solid #1a5fb4;outline-offset:3px}
+.tv-ans[aria-disabled]{cursor:default}.tv-ans[aria-disabled]:active{transform:none}
+.tv-num{flex:none;width:2em;height:2em;border-radius:50%;background:#24463c;color:#fff;display:flex;align-items:center;justify-content:center;font-size:.9em}
+.tv-text{flex:1}
+.tv-mark{flex:none;font-size:.85em;font-weight:700;white-space:nowrap}
+.tv-ans.is-right{background:#e3f4e1;border:5px solid #1b6e2a}.tv-ans.is-right .tv-mark{color:#14571f}
+.tv-ans.is-wrong{background:#fde8e6;border:5px dashed #b3261e}.tv-ans.is-wrong .tv-mark{color:#8c1d18}
+.tv-ans.is-gone{background:#efe7da;color:#54453a;border-style:dotted}.tv-ans.is-gone .tv-text{text-decoration:line-through 2px}
+.tv-ans.is-gone .tv-num{background:#8a7a68}
+.tv-fifty{margin-top:16px;min-height:56px;background:#efe4cc;color:#2b2118;font-weight:700;font-size:.95em;border:2px solid #b8a68a}
+.tv-fifty[aria-disabled]{background:#f3ede2;color:#54453a;cursor:default}
+.tv-result{margin-top:18px;padding:16px 18px;border-radius:16px;background:#fff;border:3px solid #1b6e2a;animation:tv-pop .3s ease-out}
+.tv-result.no{border-color:#8a5a00}
+.tv-verdict{margin:0 0 6px;font-size:1.25em;font-weight:700}
+.tv-fact{margin:0 0 14px;line-height:1.45}
+.tv-next{min-height:64px;font-size:1.1em;padding:12px 28px}
+.tv-final{font-family:var(--title,Georgia,serif);font-size:1.7em;margin-bottom:6px}
+.tv-cheer{font-size:1.15em;margin:0 0 14px}
+.tv-review{margin:0;padding-left:1.6em;display:grid;gap:10px}
+.tv-review li{line-height:1.35}
+.tv-rmark{display:block;font-weight:700}.tv-review li.ok .tv-rmark{color:#14571f}.tv-review li.no .tv-rmark{color:#7a3a00}
+.tv-rq{display:block}.tv-ra{display:block;color:#54453a;font-weight:700}
+@keyframes tv-pop{from{transform:scale(.97);opacity:.4}to{transform:none;opacity:1}}
+@media (max-width:640px){.tv{padding:8px;font-size:calc(18px * var(--card-scale,1))}.tv-card{padding:14px 14px 18px}.tv-q{font-size:1.25em}.tv-answers{grid-template-columns:1fr;gap:10px}.tv-ans{min-height:64px}.tv-ans{flex-wrap:wrap;row-gap:4px}.tv-mark{white-space:normal;flex-basis:100%;padding-left:2.6em}}
+:root[data-contrast=high] .tv-card{background:#fff;border:3px solid #000;box-shadow:none}
+:root[data-contrast=high] .tv-ans,:root[data-contrast=high] .tv-result,:root[data-contrast=high] .tv-fifty{border-color:#000;color:#000;background:#fff}
+:root[data-contrast=high] .tv-ans.is-right{border-width:6px;background:#fff}:root[data-contrast=high] .tv-ans.is-wrong{border-width:6px;background:#fff}
+:root[data-contrast=high] .tv-num{background:#000}:root[data-contrast=high] .tv-meta,:root[data-contrast=high] .tv-score,:root[data-contrast=high] .tv-mark,:root[data-contrast=high] .tv-ra{color:#000!important}
+:root[data-motion=reduce] .tv-result{animation:none}
+@media (prefers-reduced-motion:reduce){.tv-result{animation:none}}
+@media (forced-colors:active){.tv-ans,.tv-result,.tv-fifty{border-color:ButtonText}.tv-num{forced-color-adjust:none;background:ButtonText;color:ButtonFace}.tv-ans.is-gone .tv-num{background:GrayText}}
